@@ -15,7 +15,6 @@ import { z } from 'zod';
 import { createId } from '@mediflow/shared';
 
 import { ApiError, handler, idSchema, moneyMinorSchema, parseBody, parseParams } from '../http/errors.js';
-import { truncateAll } from '../db/index.js';
 
 async function requireReseller(request: FastifyRequest): Promise<void> {
   const me = request.tenant.user;

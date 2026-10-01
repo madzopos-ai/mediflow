@@ -177,50 +177,15 @@ export class CloudApiDriver implements WhatsAppDriver {
 }
 
 /**
- * Baileys (Web) driver, kept behind the same interface.
+ * Driver names.
  *
- * Baileys speaks the consumer protocol, which carries an account-level session
- * and can be banned, so it is opt-in via `WHATSAPP_DRIVER=baileys` and is not
- * the default for production.
+ * There is deliberately no Baileys/Web entry here. The consumer protocol needs
+ * a persistent account-level session and can get a number banned, so it lives in
+ * the separate gateway service (`@mediflow/baileys-gateway`) that owns the
+ * session and drains the Firestore outbox. The API never holds that session: it
+ * only reaches the gateway for device pairing, via `GATEWAY_URL`.
  */
-export class BaileysDriver implements WhatsAppDriver {
-  readonly name = 'baileys';
-
-  constructor(private readonly session: { sendText(to: string, body: string): Promise<{ id?: string }> }) {}
-
-  async send(request: SendRequest): Promise<SendResult> {
-    try {
-      const result = await this.session.sendText(request.to, request.body);
-      return { ok: true, providerMessageId: result.id ?? createId('baileys'), status: 'sent' };
-    } catch (error) {
-      return { ok: false, retryable: true, error: error instanceof Error ? error.message : String(error) };
-    }
-  }
-
-  onStatus(): void {
-    // Consumer protocol delivers read receipts in-session, not by webhook.
-  }
-
-  parseInbound(payload: unknown): WhatsAppMessage | null {
-    if (typeof payload !== 'object' || payload === null) return null;
-    const body = payload as { from?: unknown; body?: unknown; id?: unknown };
-    if (typeof body.from !== 'string' || typeof body.body !== 'string') return null;
-    return {
-      from: body.from,
-      to: 'baileys',
-      body: body.body,
-      providerMessageId: typeof body.id === 'string' ? body.id : null,
-      timestamp: null,
-      raw: payload,
-    };
-  }
-
-  forPhoneNumber(): WhatsAppDriver {
-    return this;
-  }
-}
-
-export type DriverName = 'simulator' | 'cloud-api' | 'baileys';
+export type DriverName = 'simulator' | 'cloud-api';
 
 export interface DriverConfig {
   simulator?: SimulatorDriver;
@@ -253,14 +218,8 @@ export function createDriver(name: string, config: DriverConfig): WhatsAppDriver
         baseUrl: 'https://graph.facebook.com',
       });
     }
-    case 'baileys':
-      // The consumer protocol needs an authenticated session with its own QR
-      // pairing flow, so it cannot be constructed from env vars alone.
-      throw new Error(
-        'The Baileys driver needs an authenticated session. Construct BaileysDriver with one at startup.',
-      );
     default:
-      throw new Error(`Unknown WHATSAPP_PROVIDER "${name}". Expected simulator, cloud, or baileys.`);
+      throw new Error(`Unknown WHATSAPP_PROVIDER "${name}". Expected simulator or cloud.`);
   }
 }
 

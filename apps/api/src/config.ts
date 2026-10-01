@@ -15,10 +15,9 @@ export interface Config {
   jwtSecret: string;
   jwtExpiresIn: string;
   corsOrigins: string[];
-  whatsappProvider: 'simulator' | 'cloud' | 'baileys';
+  whatsappProvider: 'simulator' | 'cloud';
   whatsappCloudToken: string | null;
   whatsappCloudPhoneNumberId: string | null;
-  baileysSessionDir: string;
   /** Base URL of the Baileys gateway, for pairing endpoints. Null when unset. */
   gatewayUrl: string | null;
   /**
@@ -86,9 +85,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     ? required('ENCRYPTION_KEY', env.ENCRYPTION_KEY)
     : env.ENCRYPTION_KEY || 'dev-only-encryption-key-32-bytes!!';
 
-  const provider = (env.WHATSAPP_PROVIDER ?? 'simulator') as Config['whatsappProvider'];
-  if (!['simulator', 'cloud', 'baileys'].includes(provider)) {
-    throw new ConfigError('WHATSAPP_PROVIDER must be simulator, cloud, or baileys.');
+  const rawProvider = env.WHATSAPP_PROVIDER ?? 'simulator';
+  if (rawProvider === 'baileys') {
+    // The API used to accept this and then crash inside the worker with a
+    // message about constructing a driver, which told an operator nothing about
+    // what to set instead. Reject it here, while we still know the env value.
+    throw new ConfigError(
+      'WHATSAPP_PROVIDER=baileys is not supported here. The WhatsApp session and QR pairing ' +
+        'live in the separate gateway service; run it, then point this service at it with ' +
+        'GATEWAY_URL and GATEWAY_ADMIN_TOKEN. Use WHATSAPP_PROVIDER=cloud to send from the API.',
+    );
+  }
+  const provider = rawProvider as Config['whatsappProvider'];
+  if (!['simulator', 'cloud'].includes(provider)) {
+    throw new ConfigError('WHATSAPP_PROVIDER must be simulator or cloud.');
   }
   if (isProduction && provider === 'simulator') {
     throw new ConfigError('WHATSAPP_PROVIDER=simulator is not allowed in production.');
@@ -109,7 +119,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     whatsappProvider: provider,
     whatsappCloudToken: env.WHATSAPP_CLOUD_TOKEN ?? null,
     whatsappCloudPhoneNumberId: env.WHATSAPP_CLOUD_PHONE_NUMBER_ID ?? null,
-    baileysSessionDir: env.BAILEYS_SESSION_DIR ?? './data/baileys',
     gatewayUrl: (env.GATEWAY_URL ?? '').trim().replace(/\/+$/, '') || null,
     gatewayAdminToken: (env.GATEWAY_ADMIN_TOKEN ?? '').trim() || null,
     publicBookingEnabled: bool(env.PUBLIC_BOOKING_ENABLED, true),

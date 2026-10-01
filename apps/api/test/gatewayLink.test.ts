@@ -17,7 +17,7 @@ function configWith(overrides: Partial<NodeJS.ProcessEnv> = {}): Config {
     NODE_ENV: 'test',
     JWT_SECRET: 'x'.repeat(40),
     ENCRYPTION_KEY: 'y'.repeat(40),
-    WHATSAPP_PROVIDER: 'baileys',
+    WHATSAPP_PROVIDER: 'cloud',
     GATEWAY_URL: 'https://gateway.example.com',
     GATEWAY_ADMIN_TOKEN: 'admin-token-abc',
     ...overrides,
@@ -175,5 +175,30 @@ describe('gateway proxy', () => {
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     // An empty object, never a number: the gateway pairs its own configured one.
     expect(init.body).toBe('{}');
+  });
+});
+
+describe('provider configuration', () => {
+  it('rejects WHATSAPP_PROVIDER=baileys with a message that names the fix', () => {
+    // This used to boot and then die inside the worker. The error has to be
+    // actionable, since a Render deploy that still sets it has no other signal.
+    let error: unknown;
+    try {
+      configWith({ WHATSAPP_PROVIDER: 'baileys' });
+    } catch (caught) {
+      error = caught;
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    expect(message).toContain('GATEWAY_URL');
+    expect(message).toContain('GATEWAY_ADMIN_TOKEN');
+  });
+
+  it('rejects an unknown provider', () => {
+    expect(() => configWith({ WHATSAPP_PROVIDER: 'telepathy' })).toThrow(/simulator or cloud/);
+  });
+
+  it('accepts the remaining providers', () => {
+    expect(configWith({ WHATSAPP_PROVIDER: 'simulator' }).whatsappProvider).toBe('simulator');
+    expect(configWith({ WHATSAPP_PROVIDER: 'cloud' }).whatsappProvider).toBe('cloud');
   });
 });

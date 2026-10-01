@@ -51,7 +51,7 @@ services:
       - key: SMTP_HOST
         sync: false
       - key: SMTP_PORT
-        value: 587
+        value: "587"
       - key: SMTP_USER
         sync: false
       - key: SMTP_PASS
@@ -62,7 +62,7 @@ services:
         value: https://mediflow-baalbeck.web.app
       # ---- Reminders: OFF by default in production, Beirut time ----
       - key: REMINDER_WORKER_ENABLED
-        value: true
+        value: "true"
       - key: DEFAULT_TIMEZONE
         value: Asia/Beirut
       # ---- One-time first owner (POST /system/bootstrap) ----

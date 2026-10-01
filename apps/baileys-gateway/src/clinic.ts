@@ -32,6 +32,7 @@ import {
 } from '@mediflow/shared';
 
 import type { ClinicConfig } from './index.js';
+import type { SessionRegistry } from './registry.js';
 import { isHighPriority, isSmsConfigured, sendSms } from './sms.js';
 
 const MAX_ATTEMPTS = 3;
@@ -85,15 +86,17 @@ interface OutboxRow {
   priority?: string;
 }
 
-export async function runClinic(clinic: ClinicConfig): Promise<void> {
+export async function runClinic(clinic: ClinicConfig, registry: SessionRegistry): Promise<void> {
   const db = adminFor(clinic);
   const outbox = () => db.collection('clinics').doc(clinic.clinicId).collection('outbox');
+
+  registry.declare(clinic.clinicId, clinic.phoneNumber);
 
   let attempt = 0;
   for (;;) {
     const startedAt = Date.now();
     try {
-      await connectAndServe(db, clinic, outbox);
+      await connectAndServe(db, clinic, outbox, registry);
       // A long-lived session that eventually drops is a network blip: reset
       // the backoff. A session that dies instantly is a config/auth problem:
       // keep backing off so logs stay readable and Firestore isn't hammered.
@@ -101,6 +104,7 @@ export async function runClinic(clinic: ClinicConfig): Promise<void> {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (message.startsWith('logged out')) {
+        registry.patch(clinic.clinicId, { state: 'logged-out', lastError: 'Session ended on the phone. Pair again.', qr: null });
         process.stderr.write(
           `[${clinic.clinicId}] logged out - delete ${clinic.sessionDir} and pair again. Parking for 10min.\n`,
         );
@@ -110,6 +114,7 @@ export async function runClinic(clinic: ClinicConfig): Promise<void> {
       }
       attempt += 1;
       const delay = backoffDelay(attempt);
+      registry.patch(clinic.clinicId, { state: 'error', lastError: message.slice(0, 300), qr: null });
       process.stderr.write(
         `[${clinic.clinicId}] connection lost: ${message} - reconnecting in ${Math.round(delay / 1000)}s (attempt ${attempt}).\n`,
       );
@@ -122,18 +127,31 @@ async function connectAndServe(
   db: Firestore,
   clinic: ClinicConfig,
   outbox: () => FirebaseFirestore.CollectionReference,
+  registry: SessionRegistry,
 ): Promise<void> {
   const { state, saveCreds } = await useMultiFileAuthState(clinic.sessionDir);
   const { version } = await fetchLatestBaileysVersion();
   const sock = makeWASocket({ version, auth: state });
   sock.ev.on('creds.update', saveCreds);
 
-  // First run: print a pairing code instead of a QR. The number is typed into
-  // WhatsApp (Linked devices > Link with phone number) and the session
-  // persists in sessionDir from then on.
+  registry.patch(clinic.clinicId, {
+    registered: state.creds.registered,
+    state: state.creds.registered ? 'connecting' : 'pairing',
+    lastError: null,
+  });
+
+  // Expose the live socket so the HTTP layer can mint a pairing code on
+  // demand. Registered per clinic and dropped on close, so a request that
+  // arrives between reconnects fails loudly instead of hanging on a dead sock.
+  registry.setRequester(clinic.clinicId, (phoneNumber) => sock.requestPairingCode(phoneNumber));
+
+  // First run: print a pairing code too, so an operator can still pair from a
+  // terminal when the web app is not yet in use. The QR (surfaced over HTTP)
+  // is the path the UI drives; both produce the same linked session.
   if (!state.creds.registered) {
     try {
       const code = await sock.requestPairingCode(clinic.phoneNumber);
+      registry.setPairingCode(clinic.clinicId, code);
       process.stdout.write(`[${clinic.clinicId}] pairing code for +${clinic.phoneNumber}: ${code}\n`);
     } catch (error) {
       process.stderr.write(
@@ -258,12 +276,41 @@ async function connectAndServe(
 
   // Block until the connection closes, then let the outer loop reconnect.
   await new Promise<void>((resolve, reject) => {
-    sock.ev.on('connection.update', ({ connection, lastDisconnect }) => {
+    sock.ev.on('connection.update', ({ connection, lastDisconnect, qr, isNewLogin }) => {
+      // Baileys emits a fresh QR here on every rotation until a phone scans
+      // one. Publishing it is what lets the web app render a scannable code
+      // without anyone reading Render's logs.
+      if (qr) {
+        registry.setQr(clinic.clinicId, qr);
+      }
       if (connection === 'open') {
-        process.stdout.write(`[${clinic.clinicId}] WhatsApp connected.\n`);
+        // `registered` is the authoritative paired flag: it flips when Baileys
+        // persists real credentials, not when the socket opens. The QR is
+        // cleared here because an open connection means pairing finished, and a
+        // stale code left in the payload would have the UI keep offering a
+        // pairing flow for a session that is already live.
+        registry.patch(clinic.clinicId, {
+          state: 'connected',
+          registered: true,
+          connectedAt: new Date().toISOString(),
+          qr: null,
+          qrUpdatedAt: null,
+          pairingCode: null,
+          lastError: null,
+        });
+        if (isNewLogin) {
+          process.stdout.write(`[${clinic.clinicId}] WhatsApp linked.\n`);
+        } else {
+          process.stdout.write(`[${clinic.clinicId}] WhatsApp connected.\n`);
+        }
+      }
+      if (connection === 'connecting') {
+        registry.patch(clinic.clinicId, { state: state.creds.registered ? 'connecting' : 'pairing' });
       }
       if (connection === 'close') {
         stopDrain();
+        registry.clearRequester(clinic.clinicId);
+        registry.patch(clinic.clinicId, { state: 'disconnected', qr: null, qrUpdatedAt: null });
         const code = (lastDisconnect?.error as { output?: { statusCode?: number } } | undefined)?.output
           ?.statusCode;
         if (code === DisconnectReason.loggedOut) {

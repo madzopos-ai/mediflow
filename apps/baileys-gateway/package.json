@@ -8,7 +8,8 @@
     "dev": "npm run build --workspace @mediflow/shared && tsx watch src/index.ts",
     "build": "npm run build --workspace @mediflow/shared && tsc -p tsconfig.build.json",
     "start": "node dist/index.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json",
+    "test": "vitest run"
   },
   "dependencies": {
     "@mediflow/shared": "*",
@@ -17,6 +18,7 @@
   },
   "devDependencies": {
     "tsx": "^4.19.2",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.9"
   }
 }

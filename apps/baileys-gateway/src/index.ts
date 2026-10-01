@@ -19,7 +19,8 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { runClinic } from './clinic.js';
-import { startHealthServer, type HealthState } from './health.js';
+import { startServer, type HealthState } from './http.js';
+import { SessionRegistry } from './registry.js';
 import { loadSmsConfig, type SmsConfig } from './sms.js';
 
 export interface ClinicConfig {
@@ -179,13 +180,26 @@ async function main(): Promise<void> {
   // still leaves the port open. If loadConfig throws afterwards the process
   // exits and the deploy fails loudly, which is correct for a real config error
   // - but "no config yet" must never look like a dead service.
+  const registry = new SessionRegistry();
   const health: HealthState = { configured: false, clinicCount: 0, source: 'starting' };
-  startHealthServer(health);
+  const server = startServer({
+    health,
+    registry,
+    adminToken: process.env.GATEWAY_ADMIN_TOKEN?.trim() || null,
+    env: process.env,
+  });
 
   const { config, source, unconfigured } = loadConfig();
   health.configured = !unconfigured;
   health.clinicCount = config.clinics.length;
   health.source = source;
+
+  // Declare every clinic up front so the pairing UI can list them and show
+  // `pending`, even for a clinic whose socket has not come up yet or whose
+  // service-account key is missing.
+  for (const clinic of config.clinics) {
+    registry.declare(clinic.clinicId, clinic.phoneNumber);
+  }
 
   if (unconfigured) {
     process.stdout.write(
@@ -206,13 +220,24 @@ async function main(): Promise<void> {
   // does not end the process, so the surviving clinics keep draining.
   await Promise.all(
     config.clinics.map((clinic) =>
-      runClinic(clinic).catch((error: unknown) => {
+      runClinic(clinic, registry).catch((error: unknown) => {
+        registry.patch(clinic.clinicId, {
+          state: 'error',
+          lastError: error instanceof Error ? error.message : String(error),
+        });
         process.stderr.write(
           `[${clinic.clinicId}] fatal: ${error instanceof Error ? error.message : String(error)}\n`,
         );
       }),
     ),
   );
+
+  // Every clinic loop is infinite, so this is unreachable in practice. If all of
+  // them ever did settle, keep the HTTP surface up rather than exiting 0 into a
+  // restart loop with the port already closed.
+  await new Promise<void>((resolve) => {
+    server.once('close', resolve);
+  });
 }
 
 void main();

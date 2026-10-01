@@ -633,6 +633,43 @@ const STRINGS = {
     ar: 'تعذّر الوصول إلى البوابة. واتساب العيادة يعمل بشكل طبيعي — هذا يؤثر على الربط فقط.',
   },
   deviceRetry: { en: 'Try again', ar: 'أعد المحاولة' },
+  deviceOwnerOnly: {
+    en: 'Only the clinic owner can link a WhatsApp device. Ask the owner to open this page.',
+    ar: 'مالك العيادة فقط هو من يمكنه ربط جهاز واتساب. اطلب من المالك فتح هذه الصفحة.',
+  },
+
+  // ——— Staff password reset (staff only; patients sign in with a code) ———
+  forgotPassword: { en: 'Forgot password?', ar: 'هل نسيت كلمة المرور؟' },
+  forgotPasswordTitle: { en: 'Reset your password', ar: 'إعادة تعيين كلمة المرور' },
+  forgotPasswordIntro: {
+    en: 'Enter the email you sign in with and we will send you a reset link.',
+    ar: 'أدخل البريد الإلكتروني الذي تسجل الدخول به وسنرسل لك رابط إعادة التعيين.',
+  },
+  forgotPasswordSent: {
+    en: 'If that address belongs to an active staff account, a reset link is on its way. It expires in 30 minutes.',
+    ar: 'إذا كان هذا البريد مسجلاً لحساب موظف فعّال، فرابط إعادة التعيين في الطريق. تنتهي صلاحيته خلال 30 دقيقة.',
+  },
+  forgotPasswordBack: { en: 'Back to sign in', ar: 'العودة لتسجيل الدخول' },
+  forgotPasswordStaffOnly: {
+    en: 'This is for clinic staff accounts. Patients sign in with their phone number and access code.',
+    ar: 'هذه الميزة لحسابات موظفي العيادة. يسجل المرضى الدخول برقم الهاتف ورمز الدخول.',
+  },
+  resetPasswordTitle: { en: 'Choose a new password', ar: 'اختر كلمة مرور جديدة' },
+  resetPasswordIntro: {
+    en: 'Your new password takes effect immediately.',
+    ar: 'ستُطبَّق كلمة المرور الجديدة فوراً.',
+  },
+  resetPasswordDone: {
+    en: 'Password updated. You can sign in now.',
+    ar: 'تم تحديث كلمة المرور. يمكنك تسجيل الدخول الآن.',
+  },
+  resetPasswordInvalid: {
+    en: 'This reset link has expired or was already used. Request a new one.',
+    ar: 'انتهت صلاحية هذا الرابط أو تم استخدامه من قبل. اطلب رابطاً جديداً.',
+  },
+  resetPasswordMismatch: { en: 'The two passwords do not match.', ar: 'كلمتا المرور غير متطابقتين.' },
+  confirmPassword: { en: 'Confirm password', ar: 'تأكيد كلمة المرور' },
+  requestNewLink: { en: 'Request a new link', ar: 'اطلب رابطاً جديداً' },
 
   // ——— Reschedule with reason (calendar) ———
   reschedule: { en: 'Postpone', ar: 'تأجيل' },

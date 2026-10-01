@@ -16,6 +16,14 @@ import { ApiError, handler, idSchema, parseBody } from '../http/errors.js';
 import { hashPassword, verifyPassword } from '../auth/password.js';
 import { FirebaseNotConfigured, exchangeFirebaseSession } from '../auth/firebase.js';
 import { requireCapability, requireRole, signSession, type SessionUser } from '../auth/plugin.js';
+import type { Config } from '../config.js';
+import type { Db } from '../db/index.js';
+import { sendMail } from '../services/mail.js';
+import {
+  issuePasswordReset,
+  redeemPasswordReset,
+  verifyPasswordReset,
+} from '../services/passwordReset.js';
 
 interface UserRow {
   id: string;
@@ -65,7 +73,15 @@ const updateStaffSchema = z.object({
   password: z.string().min(10).max(256).optional(),
 });
 
-export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
+/**
+ * `config` and `db` are threaded in as a closure rather than Fastify plugin
+ * options: Fastify types the options bag as its own `Config`, and our Config's
+ * `logLevel` is a plain string that collides with Fastify's `LevelWithSilent`.
+ */
+export async function registerAuthRoutes(
+  app: FastifyInstance,
+  { config, db }: { config: Config; db: Db },
+): Promise<void> {
   const attempts = new Map<string, Attempt>();
 
   function throttleKey(email: string, ip: string): string {
@@ -333,6 +349,145 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       return { ok: true };
     }),
   );
+
+  registerPasswordResetRoutes(app, {
+    config,
+    db,
+    throttleKey,
+    checkThrottle,
+    recordFailure,
+  });
+}
+
+interface ResetGuard {
+  config: Config;
+  db: Db;
+  throttleKey(email: string, ip: string): string;
+  checkThrottle(key: string): void;
+  recordFailure(key: string): void;
+}
+
+/**
+ * Staff password reset by email.
+ *
+ * Patients are not served here: they have no password, only a phone number and
+ * a staff-issued access code. See `services/passwordReset.ts` for why a reset
+ * token is the right shape for staff and a phone number is not.
+ */
+function registerPasswordResetRoutes(app: FastifyInstance, guard: ResetGuard): void {
+  const { config, db } = guard;
+  const forgetSchema = z.object({ email: z.string().trim().toLowerCase().email().max(254) });
+  const redeemSchema = z.object({
+    token: z.string().trim().min(10).max(200),
+    password: z.string().min(10).max(256),
+  });
+
+  /** Same answer whether or not the address is registered, and always 200. */
+  const ACK = {
+    ok: true,
+    message: 'If that address belongs to an active staff account, a reset link is on its way.',
+  };
+
+  app.post(
+    '/auth/password/forgot',
+    { config: { public: true } },
+    handler(async (request) => {
+      const body = parseBody(request, forgetSchema, 'reset request');
+
+      // Throttle on the same key as login, so this cannot be used to spray
+      // reset mail at one address any faster than guessing its password.
+      const key = guard.throttleKey(body.email, request.ip);
+      guard.checkThrottle(key);
+      guard.recordFailure(key);
+
+      const mail = config.smtp;
+      if (!mail) {
+        // 503 rather than a silent 200: a user told to check their inbox when
+        // no mail was sent would wait for an hour and then file a ticket. This
+        // is an operator misconfiguration, not the caller's fault.
+        throw new ApiError(
+          503,
+          'mail_not_configured',
+          'Password reset by email is not available. Contact your clinic administrator.',
+        );
+      }
+
+      const issue = issuePasswordReset(db, body.email);
+      if (issue) {
+        const link = resetLinkFor(config.publicWebUrl, issue.token);
+        const result = await sendMail(mail, {
+          to: issue.email,
+          subject: 'Reset your MediFlow password',
+          text: [
+            `Hello ${issue.fullName},`,
+            '',
+            'Someone requested a password reset for your MediFlow staff account.',
+            'Open this link to choose a new password:',
+            '',
+            link,
+            '',
+            `The link expires at ${issue.expiresAt} and can only be used once.`,
+            '',
+            'If you did not request this, you can ignore this email: your',
+            'password will not change until someone opens the link.',
+          ].join('\n'),
+        });
+        if (!result.ok) {
+          // Log the reason but do not tell the caller: the reply is the same
+          // either way, and this is an operator problem to fix in the logs.
+          request.log.error({ err: result.error }, 'password reset email failed');
+        }
+      }
+
+      return ACK;
+    }),
+  );
+
+  // Confirms a token is live so the reset page can say "expired" instead of
+  // letting someone type a new password that is then rejected.
+  app.get(
+    '/auth/password/reset',
+    { config: { public: true } },
+    handler(async (request) => {
+      const query = request.query as { token?: string };
+      const token = String(query.token ?? '').trim();
+      if (token.length < 10) throw ApiError.badRequest('Missing reset token.');
+      const check = verifyPasswordReset(db, token);
+      if (!check.ok) {
+        throw new ApiError(400, `reset_${check.reason ?? 'invalid'}`, 'This reset link is no longer valid.');
+      }
+      return { ok: true };
+    }),
+  );
+
+  app.post(
+    '/auth/password/reset',
+    { config: { public: true } },
+    handler(async (request) => {
+      const body = parseBody(request, redeemSchema, 'reset submission');
+      const result = await redeemPasswordReset(db, body.token, body.password);
+      if (!result.ok) {
+        throw new ApiError(
+          400,
+          `reset_${result.reason ?? 'invalid'}`,
+          'This reset link is no longer valid.',
+        );
+      }
+      return { ok: true, message: 'Password updated. You can sign in now.' };
+    }),
+  );
+}
+
+/**
+ * Builds the link a person clicks.
+ *
+ * The token goes in the fragment, not the query string. Fragments are not sent
+ * to servers or written to access logs on the way to `/auth/password/reset`,
+ * where a leaked query token would be a standing password-reset capability for
+ * anyone holding the link.
+ */
+function resetLinkFor(base: string, token: string): string {
+  return `${base}/#/password-reset?token=${encodeURIComponent(token)}`;
 }
 
 /**

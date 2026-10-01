@@ -933,4 +933,30 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX idx_lab_orders ON lab_orders(clinic_id, patient_id, status);
     `,
   },
+  {
+    id: 21,
+    name: 'password_reset_tokens',
+    sql: `
+      -- Staff password resets. One row per issued token.
+      --
+      -- Only the token's SHA-256 is stored, never the token itself, so a
+      -- database leak cannot be replayed against /auth/password/reset. Single
+      -- use is enforced by clearing used_at, and expiry is checked on read, so
+      -- an old link in someone's inbox is inert rather than a standing key.
+      CREATE TABLE password_reset_tokens (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        token_hash TEXT NOT NULL UNIQUE,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        used_at TEXT,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+      -- The lookup path is "newest live token for this user"; the index keeps
+      -- that from scanning, and the partial index skips spent rows.
+      CREATE INDEX idx_password_reset_live
+        ON password_reset_tokens(user_id, created_at DESC)
+        WHERE used_at IS NULL;
+    `,
+  },
 ];

@@ -282,6 +282,7 @@ function renderApiLogin(root: HTMLElement): void {
         ${field(t('password'), input('password', 'password', '', 'required autocomplete="current-password"'))}
         <button class="primary" type="submit">${esc(t('login'))}</button>
         <p class="form-error" id="login-error" hidden></p>
+        <p><a class="linklike" href="#/password-reset">${esc(t('forgotPassword'))}</a></p>
       </form>
       <p class="muted">${esc(t('newPractice'))} <a href="#/join">${esc(t('joinAs'))}</a></p>
       <form id="patient-form" hidden>

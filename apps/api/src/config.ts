@@ -6,6 +6,8 @@
  * with a guessable signing key would silently accept forged tokens.
  */
 
+import { loadMailConfig, type MailConfig } from './services/mail.js';
+
 export interface Config {
   nodeEnv: 'development' | 'test' | 'production';
   isProduction: boolean;
@@ -29,6 +31,10 @@ export interface Config {
    * call and scopes it to the caller's own clinic.
    */
   gatewayAdminToken: string | null;
+  /** SMTP for staff password resets. Null when unconfigured, which disables it. */
+  smtp: MailConfig | null;
+  /** Public origin of the web app, used to build the password reset link. */
+  publicWebUrl: string;
   publicBookingEnabled: boolean;
   defaultTimezone: string;
   reminderWorkerEnabled: boolean;
@@ -121,6 +127,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     whatsappCloudPhoneNumberId: env.WHATSAPP_CLOUD_PHONE_NUMBER_ID ?? null,
     gatewayUrl: (env.GATEWAY_URL ?? '').trim().replace(/\/+$/, '') || null,
     gatewayAdminToken: (env.GATEWAY_ADMIN_TOKEN ?? '').trim() || null,
+    smtp: loadMailConfig(env),
+    publicWebUrl: (env.PUBLIC_WEB_URL ?? '').trim().replace(/\/+$/, ''),
     publicBookingEnabled: bool(env.PUBLIC_BOOKING_ENABLED, true),
     defaultTimezone: env.DEFAULT_TIMEZONE ?? 'UTC',
     reminderWorkerEnabled: bool(env.REMINDER_WORKER_ENABLED, !isProduction),

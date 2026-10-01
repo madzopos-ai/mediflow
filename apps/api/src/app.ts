@@ -130,7 +130,9 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   });
 
   await app.register(registerSystemRoutes);
-  await app.register(registerAuthRoutes);
+  await app.register(async (instance) => {
+    await registerAuthRoutes(instance, { config, db });
+  });
   await app.register(registerClinicRoutes);
   await app.register(registerPatientRoutes);
   await app.register(registerAppointmentRoutes);

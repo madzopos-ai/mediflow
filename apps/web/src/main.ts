@@ -6,6 +6,7 @@ import { applyLang, getLang, setLang, t, tx, type StringKey } from './i18n.js';
 import { esc, errorText, toast } from './ui.js';
 import { installClientLogging } from './log.js';
 import { renderLogin } from './views/login.js';
+import { renderForgotPassword, renderResetPassword } from './views/passwordReset.js';
 import { renderJoin, renderOnboarding } from './views/join.js';
 import { renderDashboard } from './views/dashboard.js';
 import { renderCalendar } from './views/calendar.js';
@@ -178,8 +179,9 @@ function paintNav(): void {
   const nav = document.getElementById('nav');
   if (!nav) return;
   const current = window.location.hash || '#/';
-  // The login screen stands alone: no tabs for a visitor without a session.
-  if (current.startsWith('#/login')) {
+  // The login and reset screens stand alone: no tabs for a visitor without a
+  // session.
+  if (current.startsWith('#/login') || current.startsWith('#/password-reset')) {
     nav.innerHTML = '';
     nav.style.display = 'none';
     return;
@@ -227,7 +229,8 @@ function route(): void {
   const root = document.getElementById('view') as HTMLElement;
   const hash = window.location.hash || '#/';
   paintNav();
-  document.body.dataset.page = hash.startsWith('#/login') ? 'login' : 'app';
+  document.body.dataset.page =
+    hash.startsWith('#/login') || hash.startsWith('#/password-reset') ? 'login' : 'app';
 
   // Session check is backend-aware: a Firebase build trusts the Firebase
   // session (Firestore rules authorise from it), a local build the API JWT.
@@ -302,6 +305,18 @@ function routeFor(hash: string, root: HTMLElement, signedIn: boolean): void {
   if (!signedIn) {
     if (hash === '#/join') {
       renderJoin(root);
+      return;
+    }
+    // Public by necessity: a locked-out owner is not signed in, which is the
+    // whole reason the reset link exists. Checked before the login redirect
+    // below, or the token would be thrown away on arrival.
+    if (hash === '#/password-reset') {
+      renderForgotPassword(root);
+      return;
+    }
+    if (hash.startsWith('#/password-reset?')) {
+      const token = new URLSearchParams(hash.split('?')[1] ?? '').get('token') ?? '';
+      renderResetPassword(root, token);
       return;
     }
     if (hash !== '#/login') window.location.hash = '#/login';

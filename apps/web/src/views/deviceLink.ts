@@ -22,6 +22,7 @@
 
 import QRCode from 'qrcode';
 
+import { ApiRequestError } from '../api.js';
 import { whatsappDevice, whatsappPairingCode, type UiDeviceLink } from '../data.js';
 import { t } from '../i18n.js';
 import { errorText, esc } from '../ui.js';
@@ -140,7 +141,11 @@ export function renderDeviceLink(root: HTMLElement): void {
         })
         .catch((error: unknown) => {
           const out = host.querySelector('#wa-device-codeout') as HTMLElement | null;
-          if (out) out.innerHTML = `<p class="muted">${esc(errorText(error))}</p>`;
+          if (!out) return;
+          out.innerHTML =
+            error instanceof ApiRequestError && error.status === 403
+              ? `<p class="muted">${esc(t('deviceOwnerOnly'))}</p>`
+              : `<p class="muted">${esc(errorText(error))}</p>`;
         })
         .finally(() => {
           codeBtn.disabled = false;
@@ -166,6 +171,15 @@ export function renderDeviceLink(root: HTMLElement): void {
       }
     } catch (error) {
       if (!alive) return;
+      // 403 is a settled answer, not a transient failure: the API gates this
+      // route on `settings:write` (owner only). Retrying cannot help, and
+      // labelling it "gateway down" would send an owner hunting a service that
+      // is working fine.
+      if (error instanceof ApiRequestError && error.status === 403) {
+        host.innerHTML = `<p><span class="pill">${esc(t('deviceOwnerOnly'))}</span></p>`;
+        stopPolling();
+        return;
+      }
       host.innerHTML = `
         <p><span class="pill danger">${esc(t('deviceGatewayDown'))}</span></p>
         <p class="row"><button type="button" id="wa-device-retry">${esc(t('deviceRetry'))}</button></p>`;

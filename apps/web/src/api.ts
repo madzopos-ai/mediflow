@@ -236,6 +236,60 @@ export async function loginRequest(email: string, password: string): Promise<{ t
 }
 
 /**
+ * Asks the API to email a reset link.
+ *
+ * The API answers 200 whether or not the address is registered, so the UI must
+ * show the same confirmation either way. Showing a different message for a
+ * known address would turn this form into a way to find out who works here.
+ */
+export async function requestPasswordReset(email: string): Promise<void> {
+  const response = await fetch(`${BASE}/auth/password/forgot`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ email }),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null) as { code?: string; message?: string } | null;
+    throw new ApiRequestError(
+      response.status,
+      body?.code ?? 'reset_failed',
+      body?.message ?? 'Password reset is unavailable.',
+    );
+  }
+}
+
+/** True when a reset link is still usable, so the page can say so up front. */
+export async function checkPasswordResetToken(token: string): Promise<boolean> {
+  const response = await fetch(
+    `${BASE}/auth/password/reset?token=${encodeURIComponent(token)}`,
+  );
+  if (response.ok) return true;
+  const body = await response.json().catch(() => null) as { code?: string } | null;
+  throw new ApiRequestError(
+    response.status,
+    body?.code ?? 'reset_invalid',
+    'This reset link is no longer valid.',
+  );
+}
+
+/** Redeems a reset token and sets the new password. */
+export async function redeemPasswordResetToken(token: string, password: string): Promise<void> {
+  const response = await fetch(`${BASE}/auth/password/reset`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ token, password }),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null) as { code?: string; message?: string } | null;
+    throw new ApiRequestError(
+      response.status,
+      body?.code ?? 'reset_invalid',
+      body?.message ?? 'This reset link is no longer valid.',
+    );
+  }
+}
+
+/**
  * Exchange a Firebase ID token for an API session.
  *
  * The API verifies the token, reads the staff doc (role + clinicId) and

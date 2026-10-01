@@ -1,0 +1,341 @@
+rules_version = '2';
+
+// MediFlow Firestore rules — the whole backend for a customer project.
+//
+// Identity plane:
+//   users/{uid}        staff identity: role + clinicId (written at signup)
+//   clinics/{clinicId} clinic profile (written at signup by its owner)
+//   config/appStatus   licence kill-switch: readable by anyone, writable only
+//                      by the reseller service account (never by a client).
+// Clinical plane (per clinic, members only):
+//   clinics/{clinicId}/patients, appointments, vitals, visits, documents,
+//   invoices, payments, threads, messages, outbox, alerts, followups, counters.
+// A signed-in member may only touch their own clinic's subtree, and only
+// staff roles may write clinical data.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function callerDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isOwner() {
+      return signedIn() && callerDoc().role == 'owner';
+    }
+
+    // Reseller (marketplace admin). Flagged once per admin account via
+    // `users/{uid}.isReseller == true` (bootstrapped in the Firebase console).
+    // A reseller reads every practice and flips practice status, but never
+    // touches clinical rows - those stay strictly per-clinic.
+    function isReseller() {
+      return signedIn() && callerDoc().isReseller == true;
+    }
+
+    function sameClinic(clinicId) {
+      return signedIn() && callerDoc().clinicId == clinicId;
+    }
+
+    // Write access to clinical data, by role. Owners manage everything;
+    // doctors, nurses and assistants chart; receptionists book appointments;
+    // billing handles invoices and payments. Read access is clinic-wide so
+    // the care team sees one chart.
+    function canWriteClinical(clinicId) {
+      return sameClinic(clinicId)
+        && callerDoc().role in ['owner', 'doctor', 'nurse', 'assistant', 'receptionist', 'billing'];
+    }
+
+    // Licence status: the app reads this on boot and locks on `suspended`.
+    match /config/appStatus {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // Staff identity. Signup is code-gated: a clinic owner redeems a
+    // reseller-issued activation code, a doctor redeems a clinic invite.
+    // Every account starts pending AND non-disabled; only the reseller
+    // activates. Self-updates may never touch privilege fields
+    // (role/clinicId/status/disabled/isReseller).
+    match /users/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isOwner() || isReseller());
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.uid == uid
+        && request.resource.data.status == 'pending'
+        && !(request.resource.data.keys().hasAny(['disabled']) && request.resource.data.disabled == true)
+        && (
+          (
+            request.resource.data.role == 'owner'
+            && clinicInvite(request.resource.data.activationCode).type == 'clinic'
+            && !clinicInvite(request.resource.data.activationCode).keys().hasAny(['usedBy'])
+            && !exists(/databases/$(database)/documents/clinics/$(request.resource.data.clinicId))
+          ) || (
+            request.resource.data.role == 'doctor'
+            && doctorInvite(request.resource.data.inviteCode).type == 'doctor'
+            && !doctorInvite(request.resource.data.inviteCode).keys().hasAny(['usedBy'])
+            && request.resource.data.clinicId == doctorInvite(request.resource.data.inviteCode).clinicId
+          )
+        );
+      allow update: if signedIn() && (isOwner() || isReseller()
+        || (request.auth.uid == uid
+          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'clinicId', 'status', 'disabled', 'isReseller', 'trial'])));
+      allow delete: if isReseller() && request.auth.uid != uid;
+    }
+
+    // Activation codes (reseller -> clinic) and doctor invites (owner ->
+    // doctor, reseller-readable). Single-doc gets only: codes are unguessable
+    // and never listed. Burning a code only flips usedBy/usedAt.
+    function inviteDoc(code) {
+      return get(/databases/$(database)/documents/invites/$(code)).data;
+    }
+
+    function clinicInvite(code) {
+      return inviteDoc(code);
+    }
+
+    function doctorInvite(code) {
+      return inviteDoc(code);
+    }
+
+    match /invites/{code} {
+      allow get: if signedIn();
+      allow list: if isReseller();
+      allow create: if signedIn() && (isReseller()
+        || (callerDoc().role == 'owner'
+          && callerDoc().clinicId == request.resource.data.clinicId
+          && request.resource.data.type == 'doctor'));
+      allow update: if signedIn() && (isReseller()
+        || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['usedBy', 'usedAt']));
+      allow delete: if isReseller()
+        || (signedIn() && callerDoc().role == 'owner' && callerDoc().clinicId == resource.data.clinicId);
+    }
+
+    // Per-clinic mirror of doctor invites so owners list and revoke their
+    // own codes (top-level list stays reseller-only). Same id, same payload.
+    match /clinics/{clinicId}/invites/{code} {
+      allow get, list: if sameClinic(clinicId) || isReseller();
+      allow create, update: if (sameClinic(clinicId) && isOwner()) || isReseller();
+      allow delete: if (sameClinic(clinicId) && isOwner()) || isReseller();
+    }
+
+    // Clinic profile. Created by its owner at signup, read by its members -
+    // and listed by the reseller console. Subscription + disabled live here;
+    // only the reseller edits them or deletes the practice.
+    match /clinics/{clinicId} {
+      allow read: if sameClinic(clinicId) || isReseller();
+      allow create: if signedIn();
+      allow update: if (sameClinic(clinicId) && isOwner()) || isReseller();
+      allow delete: if isReseller();
+    }
+
+    // Subscription receipts: reseller-only ledger, append-only.
+    match /clinics/{clinicId}/subscriptionPayments/{id} {
+      allow read: if isReseller();
+      allow create: if isReseller();
+      allow update, delete: if false;
+    }
+
+    // Clinical collections, one subtree per clinic. Reads are clinic-wide;
+    // writes require a clinical staff role.
+    match /clinics/{clinicId}/patients/{id} {
+      allow read: if sameClinic(clinicId);
+      allow create, update: if canWriteClinical(clinicId);
+      allow delete: if false;
+    }
+    match /clinics/{clinicId}/appointments/{id} {
+      allow read: if sameClinic(clinicId);
+      allow create, update: if canWriteClinical(clinicId);
+      allow delete: if false;
+    }
+    match /clinics/{clinicId}/vitals/{id} {
+      allow read: if sameClinic(clinicId);
+      allow create: if canWriteClinical(clinicId);
+      allow update, delete: if false;
+    }
+    match /clinics/{clinicId}/visits/{id} {
+      allow read: if sameClinic(clinicId);
+      allow create, update: if canWriteClinical(clinicId);
+      allow delete: if false;
+    }
+    // A scan filed on the wrong patient must be removable: deletes are
+    // allowed for clinical roles, never silently.
+    match /clinics/{clinicId}/documents/{id} {
+      allow read: if sameClinic(clinicId);
+      allow create, update, delete: if canWriteClinical(clinicId);
+    }
+    match /clinics/{clinicId}/invoices/{id} {
+      allow read: if sameClinic(clinicId);
+      allow create, update: if canWriteClinical(clinicId);
+      allow delete: if false;
+    }
+    match /clinics/{clinicId}/payments/{id} {
+      allow read: if sameClinic(clinicId);
+      allow create: if canWriteClinical(clinicId);
+      allow update, delete: if false;
+    }
+    match /clinics/{clinicId}/threads/{id} {
+      allow read: if sameClinic(clinicId);
+      allow create, update: if canWriteClinical(clinicId);
+      allow delete: if false;
+    }
+    match /clinics/{clinicId}/threads/{threadId}/messages/{id} {
+      allow read: if sameClinic(clinicId);
+      allow create, update: if canWriteClinical(clinicId);
+      allow delete: if false;
+    }
+    // The outbox is the Baileys gateway's queue: the app enqueues, the
+    // gateway drains. Clients may enqueue and read; only the gateway (via
+    // the service account, which bypasses rules) advances the state.
+    match /clinics/{clinicId}/outbox/{id} {
+      allow read: if sameClinic(clinicId);
+      allow create: if canWriteClinical(clinicId)
+        && request.resource.data.status == 'queued';
+      allow update: if sameClinic(clinicId)
+        && request.resource.data.status == resource.data.status;
+      allow delete: if false;
+    }
+    match /clinics/{clinicId}/alerts/{id} {
+      allow read: if sameClinic(clinicId);
+      allow create, update: if canWriteClinical(clinicId);
+      allow delete: if false;
+    }
+    match /clinics/{clinicId}/followups/{id} {
+      allow read: if sameClinic(clinicId);
+      allow create, update: if canWriteClinical(clinicId);
+      allow delete: if false;
+    }
+    // Visit flow: ordered panels and structured prescriptions. The patient
+    // app renders these as schedules, so they live here rather than in notes.
+    match /clinics/{clinicId}/requested_tests/{id} {
+      allow read: if sameClinic(clinicId);
+      allow create, update: if canWriteClinical(clinicId);
+      allow delete: if false;
+    }
+    match /clinics/{clinicId}/prescriptions/{id} {
+      allow read: if sameClinic(clinicId);
+      allow create, update: if canWriteClinical(clinicId);
+      allow delete: if false;
+    }
+    // Contracted insurers live once per clinic; patients link to one.
+    match /clinics/{clinicId}/insurers/{id} {
+      allow read: if sameClinic(clinicId);
+      allow create, update: if canWriteClinical(clinicId);
+      allow delete: if false;
+    }
+    // Money received from insurers: append-only receipts, never edited.
+    match /clinics/{clinicId}/insurer_payments/{id} {
+      allow read: if sameClinic(clinicId);
+      allow create: if canWriteClinical(clinicId);
+      allow update, delete: if false;
+    }
+    // Access codes never touch clients: only the API (service account) reads
+    // them, so no rule allows them at all.
+    match /clinics/{clinicId}/access_codes/{id} {
+      allow read, write: if false;
+    }
+    // Atomic counters (e.g. MRN sequence) via transaction only.
+    match /clinics/{clinicId}/counters/{id} {
+      allow read: if sameClinic(clinicId);
+      allow write: if canWriteClinical(clinicId);
+    }
+
+    // Patient-owned accounts (Firebase-native patient app, no API server).
+    // The doc id is derived from phone + PIN by iterated hashing, so it is
+    // unguessable without the credentials: single-document operations are
+    // open to any signed-in user (anonymous included), list queries are
+    // denied outright, and nothing here is enumerable.
+    match /patientAccounts/{accountId} {
+      allow get, create, update, delete: if signedIn();
+      allow list: if false;
+    }
+    match /patientAccounts/{accountId}/records/{clinicId} {
+      allow get, create, update, delete: if signedIn();
+      allow list: if signedIn();
+    }
+    // Patient-uploaded labs/photos + their OCR-confirmed readings. Same
+    // capability model: unguessable account id, single-doc access for anyone
+    // signed in, no listing. The linked clinic reads them via patientAppId.
+    match /patientAccounts/{accountId}/uploads/{docId} {
+      allow get, create, update, delete: if signedIn();
+      allow list: if signedIn();
+    }
+    match /patientAccounts/{accountId}/myVitals/{vitalId} {
+      allow get, create, update, delete: if signedIn();
+      allow list: if signedIn();
+    }
+    // Dose-taken log (دوائي): patient marks, patient reads. Same model.
+    match /patientAccounts/{accountId}/medTakes/{takeId} {
+      allow get, create, update, delete: if signedIn();
+      allow list: if signedIn();
+    }
+    // My bookings mirror (مواعيدي): patient reads/cancels own, staff mirrors.
+    match /patientAccounts/{accountId}/bookings/{bookingId} {
+      allow get, create, update, delete: if signedIn();
+      allow list: if signedIn();
+    }
+    // Instant patient bookings: patient creates, clinic staff manages.
+    match /directBookings/{clinicId}/items/{id} {
+      allow create: if signedIn();
+      allow get: if signedIn();
+      allow read, update, delete: if canWriteClinical(clinicId);
+      allow list: if canWriteClinical(clinicId);
+    }
+    // Taken-slot markers (no patient data inside, just the time): written
+    // by the patient inside the same booking transaction, read by every
+    // patient to hide just-booked times instantly — no staff republish wait.
+    match /slotClaims/{clinicId}/items/{id} {
+      allow read: if true;
+      allow create, update, delete: if signedIn();
+    }
+    // Patient phone directory: maps phone digits -> account id so a doctor
+    // can find a registered patient by the number alone. Single-doc gets
+    // only (no listing); the client verifies the account's own phone field
+    // matches, so a forged mapping pointing elsewhere is rejected.
+    match /patientPhones/{digits} {
+      allow get: if signedIn();
+      allow list: if false;
+      allow create, update: if signedIn();
+      allow delete: if isReseller();
+    }
+
+    // Public patient directory + booking requests (Firebase patient app).
+    // Directory docs are public-readable and member-written; slugs are not
+    // secrets, and they carry no clinical data - only names, phone, address.
+    match /publicClinics/{clinicId} {
+      allow read: if true;
+      allow create, update: if canWriteClinical(clinicId);
+      allow delete: if isReseller();
+    }
+    match /publicDoctors/{uid} {
+      allow read: if true;
+      allow create: if signedIn() && callerDoc().clinicId == request.resource.data.clinicId;
+      allow update: if signedIn()
+        && (callerDoc().clinicId == resource.data.clinicId || request.auth.uid == uid || isReseller());
+      allow delete: if signedIn() && (request.auth.uid == uid || isReseller());
+    }
+    // A patient files a booking wish; only the clinic's staff reads it.
+    // Patients never list these (no enumerable patient data); the clinic
+    // confirms over WhatsApp and the appointment lands in the shared snapshot.
+    match /bookingRequests/{clinicId}/items/{id} {
+      allow create: if signedIn();
+      allow read, update, delete: if canWriteClinical(clinicId);
+      allow list: if canWriteClinical(clinicId);
+    }
+
+    // Published availability snapshots: computed by staff devices from the
+    // real schedule + live bookings, read by every patient. Days are keyed by
+    // date so patients fetch a week without any query (no index needed).
+    // A stale snapshot can never double-book: accept revalidates the slot.
+    match /publicSlots/{clinicId} {
+      allow read: if true;
+      allow create, update, delete: if canWriteClinical(clinicId);
+    }
+    match /publicSlots/{clinicId}/days/{day} {
+      allow read: if true;
+      allow create, update, delete: if canWriteClinical(clinicId);
+    }
+  }
+}

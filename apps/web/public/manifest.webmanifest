@@ -1,0 +1,27 @@
+{
+  "name": "MediFlow",
+  "short_name": "MediFlow",
+  "description": "Clinic practice management: calendar, patients, documents, billing, WhatsApp automation, decision support.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f4f6f7",
+  "theme_color": "#0e5f6b",
+  "dir": "auto",
+  "lang": "en",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

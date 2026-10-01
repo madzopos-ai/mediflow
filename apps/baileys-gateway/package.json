@@ -1,0 +1,22 @@
+{
+  "name": "@mediflow/baileys-gateway",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "WhatsApp gateway: drains each clinic's Firestore outbox over Baileys and routes inbound messages back into threads.",
+  "scripts": {
+    "dev": "npm run build --workspace @mediflow/shared && tsx watch src/index.ts",
+    "build": "npm run build --workspace @mediflow/shared && tsc -p tsconfig.build.json",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@mediflow/shared": "*",
+    "@whiskeysockets/baileys": "^6.7.0",
+    "firebase-admin": "^13.0.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

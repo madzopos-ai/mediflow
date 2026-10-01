@@ -1,0 +1,29 @@
+node_modules/
+dist/
+build/
+.cache/
+.smoke/
+*.log
+npm-debug.log*
+.env
+.env.local
+.env.*.local
+# Per-customer Firebase configs written by the reseller dashboard
+# (.env.<nick> at root, apps/web/.env.production) — never commit.
+.env.cmediflow
+apps/web/.env.production
+apps/web/.env.*.local
+data/
+apps/api/data/
+apps/api/uploads/
+apps/web/dev-dist/
+apps/baileys-gateway/sessions/
+apps/baileys-gateway/keys/
+apps/baileys-gateway/gateway-config.json
+.DS_Store
+Thumbs.db
+coverage/
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm

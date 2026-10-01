@@ -1,0 +1,18 @@
+{
+  "_comment": "Copy to gateway-config.json and fill in. One entry per clinic; the gateway serves them all from one process. TWILIO_* env vars override the sms block when both are set.",
+  "clinics": [
+    {
+      "clinicId": "fb-demo-clinic",
+      "projectId": "your-firebase-project-id",
+      "serviceAccountPath": "./keys/demo-clinic-sa.json",
+      "phoneNumber": "966500000000",
+      "sessionDir": "./sessions/fb-demo-clinic"
+    }
+  ],
+  "sms": {
+    "_comment": "Optional SMS fallback (Twilio) for access codes and high-priority reminders when WhatsApp delivery fails. Omit to disable.",
+    "accountSid": "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "authToken": "set-via-TWILIO_AUTH_TOKEN-env-var",
+    "fromNumber": "+10000000000"
+  }
+}

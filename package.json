@@ -1,0 +1,39 @@
+{
+  "name": "mediflow",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MediFlow - multi-tenant medical practice & patient management PWA with AI decision support and WhatsApp automation",
+  "license": "MIT",
+  "packageManager": "npm@10.2.4",
+  "engines": {
+    "node": ">=20.11.0"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test:shared": "npm run test --workspace @mediflow/shared",
+    "build": "npm run build --workspace @mediflow/shared && npm run build --workspace @mediflow/api && npm run build --workspace @mediflow/web && npm run build --workspace @mediflow/baileys-gateway",
+    "dev": "concurrently -n shared,api,web,baileys -c yellow,cyan,magenta,green \"npm:dev:shared\" \"npm:dev:api\" \"npm:dev:web\" \"npm:dev:baileys\"",
+    "dev:api": "npm run dev --workspace @mediflow/api",
+    "dev:web": "npm run dev --workspace @mediflow/web",
+    "dev:shared": "npm run dev --workspace @mediflow/shared",
+    "dev:baileys": "npm run dev --workspace @mediflow/baileys-gateway",
+    "start": "node apps/api/dist/index.js",
+    "start:baileys": "node apps/baileys-gateway/dist/index.js",
+    "test": "npm run test --workspace @mediflow/api && npm run test --workspace @mediflow/shared",
+    "db:migrate": "npm run db:migrate --workspace @mediflow/api",
+    "db:seed": "npm run db:seed --workspace @mediflow/api",
+    "db:reset": "npm run db:reset --workspace @mediflow/api",
+    "admin:pending": "npm run admin:pending --workspace @mediflow/api",
+    "admin:approve": "npm run admin:approve --workspace @mediflow/api",
+    "clean": "rimraf packages/*/dist apps/*/dist"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "rimraf": "^6.0.1",
+    "typescript": "^5.7.2"
+  }
+}

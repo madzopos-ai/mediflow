@@ -1,0 +1,23 @@
+{
+  "name": "@mediflow/web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "npm run build --workspace @mediflow/shared && vite",
+    "build": "npm run build --workspace @mediflow/shared && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vite": "^5.4.0"
+  },
+  "dependencies": {
+    "@mediflow/shared": "*",
+    "firebase": "^12.19.0",
+    "jsqr": "^1.4.0",
+    "pdfjs-dist": "^6.3.289",
+    "tesseract.js": "^7.0.0"
+  }
+}

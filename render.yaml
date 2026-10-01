@@ -21,7 +21,10 @@ services:
     plan: free
     # Repo root: the API builds through npm workspaces, which need the root
     # package.json and package-lock.json.
-    buildCommand: npm ci && npm run build --workspace @mediflow/api
+    # --include=dev: Render sets NODE_ENV=production, which makes npm skip
+    # devDependencies - including typescript itself. The types package above
+    # moved to dependencies as well, so the build survives pruning either way.
+    buildCommand: npm ci --include=dev && npm run build --workspace @mediflow/api
     # Migrations run automatically on boot (src/index.ts); no migrate step.
     startCommand: npm run start --workspace @mediflow/api
     healthCheckPath: /health

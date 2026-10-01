@@ -19,6 +19,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { runClinic } from './clinic.js';
+import { startHealthServer, type HealthState } from './health.js';
 import { loadSmsConfig, type SmsConfig } from './sms.js';
 
 export interface ClinicConfig {
@@ -50,9 +51,6 @@ interface LoadedConfig {
 
 /** Directory of this module, so a deployed bundle finds its sibling files. */
 const here = dirname(fileURLToPath(import.meta.url));
-
-/** Keeps the idle loop referenced so the interval is not collected. */
-const IDLE_TICK_MS = 1 << 30;
 
 /**
  * Config file candidates, most specific first.
@@ -165,19 +163,29 @@ function loadConfig(env: NodeJS.ProcessEnv = process.env): LoadedConfig {
  * running. Staying up with an explicit log line is the honest middle: the
  * process is alive, serving nothing, and says so on every boot.
  *
- * The hold is a real timer rather than a never-resolving promise on purpose: a
- * pending promise does not keep the Node event loop alive, so with nothing else
- * scheduled the process would drain its queue and exit 0 anyway - the exact
- * crash-loop this is meant to avoid.
+ * The health server's listening socket is what actually keeps the event loop
+ * alive here, which is the honest way to do it: we are not holding the process
+ * open on an inert timer, we are up because something is genuinely listening.
  */
 function idle(): Promise<void> {
   return new Promise(() => {
-    setInterval(() => {}, IDLE_TICK_MS);
+    // Intentionally never resolves. The open listener above keeps the loop
+    // running; this promise just parks `main` so it does not fall through.
   });
 }
 
 async function main(): Promise<void> {
+  // Bind before reading the config so a slow, missing, or unconfigured file
+  // still leaves the port open. If loadConfig throws afterwards the process
+  // exits and the deploy fails loudly, which is correct for a real config error
+  // - but "no config yet" must never look like a dead service.
+  const health: HealthState = { configured: false, clinicCount: 0, source: 'starting' };
+  startHealthServer(health);
+
   const { config, source, unconfigured } = loadConfig();
+  health.configured = !unconfigured;
+  health.clinicCount = config.clinics.length;
+  health.source = source;
 
   if (unconfigured) {
     process.stdout.write(

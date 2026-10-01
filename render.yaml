@@ -32,6 +32,11 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      # Pin Node 22: Render otherwise installs the engines floor (20.11.0),
+      # which predates require(esm) - @fastify/jwt's jose dependency crashes
+      # on boot there with ERR_REQUIRE_ESM. Local dev runs 22.
+      - key: NODE_VERSION
+        value: "22"
       # Render injects PORT itself; HOST defaults to 0.0.0.0 in config.
       # ---- Required secrets (typed in the dashboard, never in git) ----
       - key: JWT_SECRET

@@ -136,7 +136,12 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   await app.register(registerAppointmentRoutes);
   await app.register(registerScheduleRoutes);
   await app.register(registerWaitlistRoutes);
-  await app.register(registerMessagingRoutes);
+  // Wrapped rather than passed as plugin options: Fastify types the options
+  // bag as its own `Config`, and our Config's `logLevel` is a plain string that
+  // collides with Fastify's `LevelWithSilent`.
+  await app.register(async (instance) => {
+    await registerMessagingRoutes(instance, config);
+  });
   await app.register(registerCareRoutes);
   await app.register(registerRecordRoutes);
   await app.register(registerVisitFlowRoutes);

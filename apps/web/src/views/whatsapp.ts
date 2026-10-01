@@ -9,9 +9,22 @@ import {
   threadsList,
   waLink,
 } from '../data.js';
+import { getUser } from '../api.js';
 import { getLang, statusLabel, t } from '../i18n.js';
 import { errorText, esc, field, fmtDateTime, input, toast } from '../ui.js';
 import { attachPatientPicker, requirePicked, type PickedPatient } from './patientPicker.js';
+import { renderDeviceLink } from './deviceLink.js';
+
+/**
+ * Whether this user may link a device.
+ *
+ * Mirrors the API's `settings:write` gate, which only an owner holds. The
+ * server is the real check; this only avoids showing a panel that could only
+ * ever return 403.
+ */
+function canLinkDevice(): boolean {
+  return getUser<{ role?: string }>()?.role === 'owner';
+}
 
 /**
  * Manual click-to-send: the app auto-composes every message (confirmations,
@@ -47,7 +60,22 @@ export function renderWhatsapp(root: HTMLElement): void {
         <h2>${esc(t('outbox'))}</h2>
         <div id="wa-outbox"><p class="muted">${esc(t('loading'))}</p></div>
       </div>
+      ${
+        // Owner-only, mirroring the API's `settings:write` gate. Hiding it is
+        // not just tidiness: a nurse or doctor would see a panel whose only
+        // possible outcome is a 403, which reads as a broken app rather than a
+        // permission they do not have.
+        canLinkDevice()
+          ? `<div class="card wide">
+        <h2>${esc(t('linkDevice'))}</h2>
+        <p class="muted">${esc(t('linkDeviceHint'))}</p>
+        <div id="wa-device"></div>
+      </div>`
+          : ''
+      }
     </section>`;
+
+  if (canLinkDevice()) renderDeviceLink(root);
 
   const loadPending = (): void => {
     outboxPending()

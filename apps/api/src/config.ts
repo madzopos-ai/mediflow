@@ -19,6 +19,17 @@ export interface Config {
   whatsappCloudToken: string | null;
   whatsappCloudPhoneNumberId: string | null;
   baileysSessionDir: string;
+  /** Base URL of the Baileys gateway, for pairing endpoints. Null when unset. */
+  gatewayUrl: string | null;
+  /**
+   * The gateway's admin token.
+   *
+   * It lives only here, never in the browser bundle: the token grants access to
+   * every clinic's pairing material on the gateway, so shipping it to clients
+   * would let any signed-in user read another clinic's QR. The API proxies the
+   * call and scopes it to the caller's own clinic.
+   */
+  gatewayAdminToken: string | null;
   publicBookingEnabled: boolean;
   defaultTimezone: string;
   reminderWorkerEnabled: boolean;
@@ -99,6 +110,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     whatsappCloudToken: env.WHATSAPP_CLOUD_TOKEN ?? null,
     whatsappCloudPhoneNumberId: env.WHATSAPP_CLOUD_PHONE_NUMBER_ID ?? null,
     baileysSessionDir: env.BAILEYS_SESSION_DIR ?? './data/baileys',
+    gatewayUrl: (env.GATEWAY_URL ?? '').trim().replace(/\/+$/, '') || null,
+    gatewayAdminToken: (env.GATEWAY_ADMIN_TOKEN ?? '').trim() || null,
     publicBookingEnabled: bool(env.PUBLIC_BOOKING_ENABLED, true),
     defaultTimezone: env.DEFAULT_TIMEZONE ?? 'UTC',
     reminderWorkerEnabled: bool(env.REMINDER_WORKER_ENABLED, !isProduction),

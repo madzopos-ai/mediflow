@@ -1928,6 +1928,46 @@ export async function outboxList(): Promise<UiOutboxRow[]> {
 }
 
 /** Rows still needing a human press of send (both backends, one shape). */
+/**
+ * WhatsApp device linking (Baileys gateway).
+ *
+ * The clinic id is never sent from here: the API derives it from the signed
+ * session, so there is no argument for a caller to get wrong and nothing in the
+ * browser to tamper with. The gateway's admin token stays on the server, so
+ * this is an ordinary authenticated call like any other.
+ *
+ * Both calls bypass the GET cache and refuse offline queueing. A cached QR is
+ * useless (it expires in about half a minute) and a queued pairing-code request
+ * would report success while doing nothing, which is the worst possible answer
+ * to "link my phone now".
+ */
+export interface UiDeviceLink {
+  clinicId: string;
+  state: string;
+  registered: boolean;
+  paired: boolean;
+  qr: string | null;
+  qrUpdatedAt: string | null;
+  pairingCode: string | null;
+  connectedAt: string | null;
+  lastError: string | null;
+  updatedAt: string | null;
+}
+
+export async function whatsappDevice(): Promise<UiDeviceLink> {
+  return api<UiDeviceLink>('GET', '/whatsapp/device', undefined, { noCache: true });
+}
+
+export async function whatsappPairingCode(): Promise<string> {
+  const data = await api<{ pairingCode: string }>(
+    'POST',
+    '/whatsapp/device/pairing-code',
+    {},
+    { noCache: true, queueable: false },
+  );
+  return data.pairingCode;
+}
+
 export async function outboxPending(): Promise<UiOutboxRow[]> {
   const items = await outboxList();
   return items.filter((o) => {

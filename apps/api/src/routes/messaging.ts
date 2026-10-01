@@ -21,7 +21,9 @@ import {
   parseQuery, parseParams } from '../http/errors.js';
 import { requireCapability } from '../auth/plugin.js';
 import { clinicTimezone, readSettings } from '../services/settings.js';
-import { tenantOf, userIdOf } from '../services/context.js';
+import { clinicIdOf, tenantOf, userIdOf } from '../services/context.js';
+import { gatewayPairingCode, gatewaySession } from '../services/gateway.js';
+import type { Config } from '../config.js';
 import { toMessage, toMessageThread, toOutboxMessage, type Row } from '../db/mappers.js';
 import { queueOutbound } from '../services/outbox.js';
 import { createMessage, ensureThread, threadKey } from '../services/threads.js';
@@ -51,7 +53,53 @@ const inboundSchema = z.object({
   receivedAt: z.string().refine((v) => !Number.isNaN(Date.parse(v))).optional(),
 });
 
-export async function registerMessagingRoutes(app: FastifyInstance): Promise<void> {
+export async function registerMessagingRoutes(
+  app: FastifyInstance,
+  config: Config,
+): Promise<void> {
+  // --- device linking -------------------------------------------------------
+  //
+  // These two routes exist so a clinic can pair its own WhatsApp number from the
+  // app instead of asking whoever can read the gateway's logs. The clinic id is
+  // taken from the signed session and the admin token stays on this server, so
+  // the browser can never address a clinic that is not its own.
+
+  /**
+   * `settings:write`, not `whatsapp:write`.
+   *
+   * This is deliberately the owner-only capability. `whatsapp:write` is held by
+   * doctor, nurse and assistant, but a pairing QR is not a messaging privilege
+   * - it is the clinic's WhatsApp account itself, and anyone holding it can read
+   * every patient thread and send as the clinic. That is an owner decision, so
+   * it is gated like other clinic-level settings. Status display rides the same
+   * gate rather than being split off, since a separate read route would hand
+   * the QR to the wider staff group.
+   */
+  app.get(
+    '/whatsapp/device',
+    { preHandler: requireCapability('settings:write') },
+    handler(async (request) => {
+      const result = await gatewaySession(config, clinicIdOf(request));
+      // 503 rather than 500: the gateway being down is a degraded integration,
+      // not a bug in this request, and the UI needs to tell those apart.
+      if (!result.ok) throw new ApiError(503, 'gateway_unavailable', result.message);
+      return result.data;
+    }),
+  );
+
+  app.post(
+    '/whatsapp/device/pairing-code',
+    { preHandler: requireCapability('settings:write') },
+    handler(async (request) => {
+      const result = await gatewayPairingCode(config, clinicIdOf(request));
+      if (!result.ok) {
+        const status = result.kind === 'rejected' ? 502 : 503;
+        throw new ApiError(status, 'gateway_unavailable', result.message);
+      }
+      return result.data;
+    }),
+  );
+
   app.get(
     '/threads',
     { preHandler: requireCapability('whatsapp:read') },

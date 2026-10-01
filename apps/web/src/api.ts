@@ -124,7 +124,31 @@ async function send(method: string, path: string, body: unknown, token: string):
   });
 }
 
-export async function api<T>(method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE', path: string, body?: unknown): Promise<T> {
+export interface ApiOptions {
+  /**
+   * Skip the localStorage GET cache entirely.
+   *
+   * Needed for anything that is expected to change within a session. The QR for
+   * device linking is the case that matters: Baileys rotates it roughly every
+   * 30s, and a cached response would show a code that can no longer scan while
+   * looking perfectly valid.
+   */
+  noCache?: boolean;
+  /**
+   * Allow a queued mutation instead of failing.
+   *
+   * Off by default. Queuing a request whose whole purpose is to take effect
+   * *now* (requesting a pairing code) would report success and do nothing.
+   */
+  queueable?: boolean;
+}
+
+export async function api<T>(
+  method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE',
+  path: string,
+  body?: unknown,
+  options: ApiOptions = {},
+): Promise<T> {
   const token = getToken();
   if (!token) throw new ApiRequestError(401, 'unauthorized', 'Not signed in.');
 
@@ -134,9 +158,13 @@ export async function api<T>(method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'
   } catch {
     // Network failure, not a server rejection.
     if (method === 'GET') {
-      const cached = readCached<{ value: T }>(path);
+      const cached = options.noCache ? null : readCached<{ value: T }>(path);
       if (cached) return cached.value;
       throw new ApiRequestError(0, 'offline', 'No connection and nothing cached.');
+    }
+    // A non-queueable write reports the outage instead of silently deferring.
+    if (options.queueable === false) {
+      throw new ApiRequestError(0, 'offline', 'No connection.');
     }
     enqueueMutation(method, path, body);
     throw new OfflineQueuedError();
@@ -162,7 +190,7 @@ export async function api<T>(method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'
   }
 
   const data = (await response.json()) as T;
-  if (method === 'GET') writeCached(path, data);
+  if (method === 'GET' && !options.noCache) writeCached(path, data);
   return data;
 }
 

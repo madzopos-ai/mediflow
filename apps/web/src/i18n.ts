@@ -590,6 +590,50 @@ const STRINGS = {
   directHint: { en: 'Opens the chat immediately without creating a task. Use the queue above for reminders that must be tracked.', ar: 'يفتح المحادثة فورًا دون إنشاء مهمة. استخدم القائمة أعلاه للتذكيرات التي يجب تتبعها.' },
   sentLogged: { en: 'Opened in WhatsApp and logged as sent.', ar: 'فُتح في واتساب وسُجّل كمُرسل.' },
 
+  // ——— Link a device (WhatsApp pairing) ———
+  linkDevice: { en: 'Link a Device', ar: 'ربط جهاز' },
+  linkDeviceHint: {
+    en: 'Pair this clinic\u2019s WhatsApp number by scanning a code with the phone. Anyone at the clinic can do this - no one needs access to server logs.',
+    ar: 'اربط رقم واتساب الخاص بالعيادة بمسح رمز من الهاتف. يستطيع أي شخص في العيادة فعل ذلك — ولا أحد يحتاج إلى الوصول إلى سجلات الخادم.',
+  },
+  devicePaired: { en: 'This device is linked.', ar: 'هذا الجهاز مرتبط.' },
+  devicePairedAt: { en: 'Linked', ar: 'تاريخ الربط' },
+  deviceNotLinked: { en: 'Not linked yet.', ar: 'غير مرتبط بعد.' },
+  deviceWaitingScan: { en: 'Scan this code in WhatsApp to link.', ar: 'امسح هذا الرمز في واتساب للربط.' },
+  deviceQrExpired: {
+    en: 'This code expired. It refreshes automatically - if it keeps failing, request a code by phone instead.',
+    ar: 'انتهت صلاحية هذا الرمز. يتجدد تلقائيًا — وإذا استمر فشل المسح، اطلب رمزًا عبر الهاتف بدلًا من ذلك.',
+  },
+  deviceQrWait: {
+    en: 'Waiting for the gateway to issue a code. This can take a few seconds after the clinic is set up.',
+    ar: 'في انتظار إصدار البوابة للرمز. قد يستغرق هذا بضع ثوانٍ بعد إعداد العيادة.',
+  },
+  deviceScanSteps: {
+    en: 'On the clinic phone: WhatsApp → Settings → Linked devices → Link a device.',
+    ar: 'على هاتف العيادة: واتساب ← الإعدادات ← الأجهزة المرتبطة ← ربط جهاز.',
+  },
+  deviceRequestCode: { en: 'Use a code instead', ar: 'استخدم رمزًا بدلًا من ذلك' },
+  devicePairingCodeLabel: { en: 'Enter this code on the phone', ar: 'أدخل هذا الرمز على الهاتف' },
+  deviceCodeRequested: { en: 'Code requested. Enter it on the phone within a minute.', ar: 'تم طلب الرمز. أدخله على الهاتف خلال دقيقة.' },
+  deviceUnlinkHint: {
+    en: 'Unlinking happens on the phone (Linked devices → unlink). This page only links.',
+    ar: 'يتم فك الربط من الهاتف (الأجهزة المرتبطة ← إلغاء الربط). هذه الصفحة للربط فقط.',
+  },
+  deviceStatePending: { en: 'Starting up', ar: 'قيد البدء' },
+  deviceStateConnecting: { en: 'Connecting', ar: 'جارٍ الاتصال' },
+  deviceStatePairing: { en: 'Waiting to be linked', ar: 'بانتظار الربط' },
+  deviceStateConnected: { en: 'Linked', ar: 'مرتبط' },
+  deviceStateDisconnected: { en: 'Disconnected', ar: 'غير متصل' },
+  deviceStateLoggedOut: { en: 'Unlinked on the phone', ar: 'تم إلغاء الربط من الهاتف' },
+  deviceStateError: { en: 'Not connecting', ar: 'لا يتصل' },
+  deviceStateUnknown: { en: 'Unknown', ar: 'غير معروف' },
+  devicePhoneLabel: { en: 'Clinic number', ar: 'رقم العيادة' },
+  deviceGatewayDown: {
+    en: 'Cannot reach the gateway. The clinic WhatsApp is unaffected - this only affects linking.',
+    ar: 'تعذّر الوصول إلى البوابة. واتساب العيادة يعمل بشكل طبيعي — هذا يؤثر على الربط فقط.',
+  },
+  deviceRetry: { en: 'Try again', ar: 'أعد المحاولة' },
+
   // ——— Reschedule with reason (calendar) ———
   reschedule: { en: 'Postpone', ar: 'تأجيل' },
   rescheduleTitle: { en: 'Postpone appointment', ar: 'تأجيل الموعد' },

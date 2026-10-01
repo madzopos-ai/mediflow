@@ -1474,3 +1474,12 @@ body[data-theme='dark'] .credit { text-shadow: 0 1px 8px rgba(0, 0, 0, 0.6); }
 .showcase-item span { font-size: 0.88rem; opacity: 0.85; }
 .auth-links { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.9rem; flex-wrap: wrap; }
 .auth-links .linklike { color: var(--accent); }
+
+/* ——— Link a device (WhatsApp pairing) ———
+   The QR sits on a forced light background: the app is dark-mode capable and a
+   QR is only scannable with dark modules on light paper, so the frame and the
+   code ignore the theme rather than inheriting it. */
+.qr-frame { display: inline-block; padding: 0.75rem; margin: 0.5rem 0; border-radius: 14px; background: #ffffff; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.18); }
+.qr-frame canvas { display: block; width: 240px; height: 240px; image-rendering: pixelated; }
+.pairing-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1.5rem; letter-spacing: 0.28em; padding: 0.35rem 0.7rem; border-radius: 10px; background: #e6f2f4; color: var(--brand-dark); }
+body[data-theme='dark'] .pairing-code { background: #12333a; color: var(--accent); }

@@ -20,7 +20,7 @@ import makeWASocket, {
   useMultiFileAuthState,
   type AnyMessageContent,
 } from '@whiskeysockets/baileys';
-import { cert, getApps, initializeApp, type App } from 'firebase-admin/app';
+import { applicationDefault, cert, getApps, initializeApp, type App } from 'firebase-admin/app';
 import { FieldValue, getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { readFileSync } from 'node:fs';
 import {
@@ -53,8 +53,17 @@ function adminFor(clinic: ClinicConfig): Firestore {
   const name = `gateway-${clinic.clinicId}`;
   const existing = getApps().find((a) => a.name === name);
   if (existing) return getFirestore(existing);
-  const key = JSON.parse(readFileSync(clinic.serviceAccountPath, 'utf8')) as Parameters<typeof cert>[0];
-  const app: App = initializeApp({ credential: cert(key), projectId: clinic.projectId }, name);
+  // With no key path, fall back to the ambient credential. This is the normal
+  // case on a platform host: Render mounts the service account or exposes it
+  // through the metadata server, and requiring a file path would force a
+  // key onto disk just to name it.
+  const key = clinic.serviceAccountPath
+    ? (JSON.parse(readFileSync(clinic.serviceAccountPath, 'utf8')) as Parameters<typeof cert>[0])
+    : null;
+  const app: App = initializeApp(
+    { credential: key ? cert(key) : applicationDefault(), projectId: clinic.projectId },
+    name,
+  );
   return getFirestore(app);
 }
 

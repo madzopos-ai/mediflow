@@ -18,6 +18,11 @@ apps/api/data/
 apps/api/uploads/
 apps/web/dev-dist/
 apps/baileys-gateway/sessions/
+# Also match a root-level or cwd-relative `sessions/`, which is where the
+# GATEWAY_SESSION_DIR-less env path writes. These hold WhatsApp creds.json.
+sessions/
+creds.json
+app-state.json
 apps/baileys-gateway/keys/
 apps/baileys-gateway/gateway-config.json
 .DS_Store

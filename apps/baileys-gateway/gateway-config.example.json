@@ -1,5 +1,5 @@
 {
-  "_comment": "Copy to gateway-config.json and fill in. One entry per clinic; the gateway serves them all from one process. TWILIO_* env vars override the sms block when both are set.",
+  "_comment": "Optional when deploying to a platform host. For a single clinic, skip this file entirely and set GATEWAY_CLINIC_ID, GATEWAY_PROJECT_ID and GATEWAY_PHONE_NUMBER as environment variables instead; env wins on a matching clinicId. This file is for several clinics, or for pointing a service-account key at a non-standard path (GATEWAY_SERVICE_ACCOUNT_PATH). TWILIO_* env vars override the sms block when both are set.",
   "clinics": [
     {
       "clinicId": "fb-demo-clinic",

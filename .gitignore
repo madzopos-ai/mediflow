@@ -32,3 +32,5 @@ coverage/
 *.sqlite-journal
 *.sqlite-wal
 *.sqlite-shm
+# Firebase CLI deploy cache: a local build artifact that changes on every deploy.
+.firebase/

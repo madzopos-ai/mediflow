@@ -12,6 +12,8 @@
   --muted: #5f6f76;
   --border: #dde5e8;
   --radius: 10px;
+  --ok: #0b7a3b;
+  --warn: #a15c00;
 }
 
 * {
@@ -698,6 +700,132 @@ button.linklike {
 
 .cards-grid .vital-card {
   margin-block-end: 0;
+}
+
+/* ——— Recall radar ———
+   One row per patient with the checkbox on the leading edge, so a
+   select-then-queue pass reads as a single column of ticks. */
+.recall-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.6rem;
+  align-items: start;
+  padding-block: 0.45rem;
+  border-block-end: 1px solid var(--border);
+}
+
+.recall-row:last-child {
+  border-block-end: none;
+}
+
+.recall-row input[type='checkbox'] {
+  margin-block-start: 0.25rem;
+  inline-size: 1.1rem;
+  block-size: 1.1rem;
+}
+
+/* ——— Clinical timeline ———
+   Logical properties throughout, so the feed and the charts read correctly in
+   both LTR (English) and RTL (Arabic) without a mirrored stylesheet. */
+.tl-filters {
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-block-end: 0.75rem;
+}
+
+.tl-filters button {
+  padding: 0.25rem 0.7rem;
+  font-size: 0.85rem;
+  border-radius: 999px;
+}
+
+.tl-feed {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.tl-row {
+  display: grid;
+  grid-template-columns: minmax(7.5rem, auto) 1fr;
+  gap: 0.75rem;
+  align-items: start;
+  border-inline-start: 3px solid var(--border);
+  padding-inline-start: 0.7rem;
+}
+
+/* One colour per source, so the eye can find a kind of event while scrolling
+   the whole history without reading the labels. */
+.tl-row.tl-visit {
+  border-inline-start-color: var(--brand);
+}
+.tl-row.tl-vital {
+  border-inline-start-color: #2f6fb0;
+}
+.tl-row.tl-prescription {
+  border-inline-start-color: #6b4fa8;
+}
+.tl-row.tl-test {
+  border-inline-start-color: #a15c00;
+}
+.tl-row.tl-document {
+  border-inline-start-color: var(--muted);
+}
+
+.tl-when {
+  white-space: nowrap;
+  padding-block-start: 0.15rem;
+}
+
+.tl-title {
+  margin-block-end: 0.2rem;
+}
+
+.tl-badge {
+  font-weight: 600;
+}
+
+.tl-body {
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+.tl-chart-wrap {
+  margin-block: 0.4rem;
+}
+
+/* The line stretches to the card width, so the viewBox is drawn wide and short
+   and preserved as none: no horizontal scrollbar on a narrow phone screen. */
+.tl-chart {
+  display: block;
+  width: 100%;
+  height: 4.5rem;
+  background: #fbfcfc;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.tl-line {
+  stroke: var(--brand);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.tl-last {
+  fill: var(--brand);
+}
+
+/* An out-of-range reading is marked on the chart with the same severity colour
+   the vitals cards use, so a spike reads as a problem and not just a shape. */
+.tl-flag.tl-critical {
+  fill: var(--danger);
+}
+.tl-flag.tl-warning {
+  fill: var(--warn);
 }
 
 .modal-overlay {

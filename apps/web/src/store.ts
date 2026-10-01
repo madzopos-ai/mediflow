@@ -2905,6 +2905,15 @@ export async function revokeDoctorInvite(code: string): Promise<void> {
 // Follow-ups
 // ---------------------------------------------------------------------------
 
+export interface FollowUpDoc {
+  id: string;
+  patientId: string | null;
+  patientName: string;
+  nextDueAt: string | null;
+  reason: string | null;
+  status: string;
+}
+
 export async function followUpCounts(): Promise<{ due: number; active: number }> {
   const { db, session } = await context();
   const snap = await getDocs(query(col(db, session.clinicId, 'followups'), where('status', '==', 'active'), limit(200)));
@@ -2915,6 +2924,86 @@ export async function followUpCounts(): Promise<{ due: number; active: number }>
     if (typeof nextDue === 'string' && nextDue <= now) due += 1;
   }
   return { due, active: snap.size };
+}
+
+/** Active follow-ups with their due dates, for the recall radar list. */
+export async function listFollowUps(): Promise<FollowUpDoc[]> {
+  const { db, session } = await context();
+  const snap = await getDocs(query(col(db, session.clinicId, 'followups'), where('status', '==', 'active'), limit(200)));
+  return snap.docs.map((d) => {
+    const data = d.data() as Record<string, unknown>;
+    return {
+      id: d.id,
+      patientId: typeof data['patientId'] === 'string' ? (data['patientId'] as string) : null,
+      patientName: String(data['patientName'] ?? ''),
+      nextDueAt: typeof data['nextDueAt'] === 'string' ? (data['nextDueAt'] as string) : null,
+      reason: typeof data['reason'] === 'string' ? (data['reason'] as string) : null,
+      status: String(data['status'] ?? 'active'),
+    };
+  });
+}
+
+/**
+ * Queue a recall message for one patient, or skip it.
+ *
+ * Opt-in is re-read here rather than trusted from the list the doctor reviewed:
+ * a patient can opt out between the scan and the send, and the consent check is
+ * the one thing that must not go stale. A skip is a normal outcome, not an
+ * error, so the caller can report "3 sent, 1 skipped".
+ *
+ * Follow-up id is recorded on the row so a completed recall can be closed from
+ * the outbox side without re-matching on patient id.
+ */
+export async function enqueueRecall(
+  patientId: string,
+  body: string,
+  followUpId: string | null,
+): Promise<{ queued: boolean; reason: 'no-phone' | 'opted-out' | 'ok' }> {
+  const patient = await getPatient(patientId);
+  if (!patient) return { queued: false, reason: 'opted-out' };
+  if (!patient.whatsappOptIn) return { queued: false, reason: 'opted-out' };
+  const to = patient.whatsappNumber ?? patient.phone;
+  if (!to) return { queued: false, reason: 'no-phone' };
+
+  const { db, session } = await context();
+  const now = new Date().toISOString();
+
+  // Reuse the patient's existing thread when there is one so the conversation
+  // stays in order in the WhatsApp panel.
+  const threads = await getDocs(
+    query(col(db, session.clinicId, 'threads'), where('patientId', '==', patientId), limit(1)),
+  );
+  const existing = threads.docs[0];
+  const threadId = existing ? existing.id : (await addDoc(col(db, session.clinicId, 'threads'), {
+    patientId,
+    channel: 'whatsapp',
+    unreadCount: 0,
+    lastMessageAt: now,
+    createdAt: now,
+  })).id;
+
+  // status stays 'queued' on create and is never written again by the client:
+  // firestore.rules only allows a client to create queued rows, and the Baileys
+  // gateway (service account, rules-exempt) is what advances the state.
+  await addDoc(col(db, session.clinicId, 'outbox'), {
+    to,
+    body,
+    template: 'followup_checkin',
+    patientId,
+    threadId,
+    followUpId,
+    status: 'queued',
+    attempts: 0,
+    scheduledFor: now,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  if (existing) {
+    await updateDoc(doc(db, 'clinics', session.clinicId, 'threads', threadId), { lastMessageAt: now });
+  }
+
+  return { queued: true, reason: 'ok' };
 }
 
 // ---------------------------------------------------------------------------

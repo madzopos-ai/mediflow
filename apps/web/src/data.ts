@@ -1216,6 +1216,8 @@ export async function vitalsAll(patientId: string): Promise<{ kind: string; valu
 
 export interface UiAppointment {
   id: string;
+  /** Null for walk-ins and for rows the legacy API does not join. */
+  patientId: string | null;
   startsAt: string;
   patientName: string;
   status: string;
@@ -1227,6 +1229,20 @@ export async function apptsRange(from: string, to: string): Promise<UiAppointmen
   }
   const data = await api<{ items?: UiAppointment[] }>('GET', `/appointments?from=${from}&to=${to}&limit=200`);
   return data.items ?? [];
+}
+
+/**
+ * Today's appointments, narrowed to one patient, for the QR check-in flow.
+ *
+ * `apptsRange` already returns the day, so this filters client-side rather than
+ * adding a second query path: one shape to keep correct across both backends.
+ */
+export async function apptTodayForPatient(patientId: string): Promise<UiAppointment | null> {
+  const today = new Date().toISOString().slice(0, 10);
+  const rows = await apptsRange(today, today);
+  const mine = rows.filter((a) => a.patientId === patientId);
+  // A patient can hold two slots; the earliest one is the visit being checked in.
+  return mine.sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt))[0] ?? null;
 }
 
 export async function apptBook(input: {
@@ -1251,6 +1267,72 @@ export async function fbDaySchedule(
   free: { startsAt: string; endsAt: string; localStart: string }[];
 }> {
   return (await store()).daySchedule(dateKey);
+}
+
+export interface UiFollowUp {
+  id: string;
+  patientId: string;
+  /** The recall line as staff wrote it, e.g. "Bloods after 3 months". */
+  name: string;
+  status: string;
+  nextDueAt: string | null;
+  intervalDays: number;
+}
+
+/** Active follow-ups for the recall radar, earliest due first. */
+export async function followUpsDue(): Promise<UiFollowUp[]> {
+  if (await useFirestore()) {
+    return (await store()).listFollowUps().then((rows) =>
+      rows
+        .filter((r) => r.patientId !== null)
+        .map((r) => ({
+          id: r.id,
+          patientId: r.patientId as string,
+          name: r.reason ?? r.patientName,
+          status: r.status,
+          nextDueAt: r.nextDueAt,
+          intervalDays: 0,
+        }))
+        .sort((a, b) => (a.nextDueAt ?? '').localeCompare(b.nextDueAt ?? '')),
+    );
+  }
+  const data = await api<{ items?: { id: string; patientId: string; name: string; status: string; nextDueAt: string; intervalDays: number }[] }>(
+    'GET',
+    '/follow-ups?status=active&limit=200',
+  );
+  return (data.items ?? [])
+    .map((f) => ({
+      id: f.id,
+      patientId: f.patientId,
+      name: f.name,
+      status: f.status,
+      nextDueAt: f.nextDueAt ?? null,
+      intervalDays: f.intervalDays ?? 0,
+    }))
+    .sort((a, b) => (a.nextDueAt ?? '').localeCompare(b.nextDueAt ?? ''));
+}
+
+/**
+ * Queue one recall message.
+ *
+ * The opt-in check lives in the store for Firestore; on the API path the server
+ * re-checks it when it writes the outbox row, so a stale opt-in cannot slip a
+ * message through either way.
+ */
+export async function recallEnqueue(
+  patientId: string,
+  body: string,
+  followUpId: string | null,
+): Promise<{ queued: boolean; reason: 'no-phone' | 'opted-out' | 'ok' }> {
+  if (await useFirestore()) {
+    return (await store()).enqueueRecall(patientId, body, followUpId);
+  }
+  const res = await api<{ queued?: boolean; reason?: 'no-phone' | 'opted-out' | 'ok' }>(
+    'POST',
+    '/outbox/recall',
+    { patientId, body, ...(followUpId ? { followUpId } : {}) },
+  );
+  return { queued: res.queued !== false, reason: res.reason ?? 'ok' };
 }
 
 export async function apptTransition(id: string, action: 'in' | 'done' | 'cancel'): Promise<void> {

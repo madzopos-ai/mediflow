@@ -41,6 +41,7 @@ import {
 import { errorText, esc, field, fileToBase64, fmtDateTime, input, sha256Hex, toast } from '../ui.js';
 import { docKindLabel, getLang, severityLabel, statusLabel, t, tx, vitalLabelAr } from '../i18n.js';
 import { createSpeechRecognizer, type SpeechController } from '../speech.js';
+import { timelineHtml } from './timeline.js';
 import { ocrPanelHtml, ocrText, runImageRead, runPdfRead } from './labOcr.js';
 import { openReport } from '../report.js';
 import { addItem, clearDraft, loadDraft, saveDraft } from './rxDraft.js';
@@ -191,12 +192,12 @@ export function renderPatients(root: HTMLElement, navigate: (hash: string) => vo
   });
 }
 
-type PatientTab = 'overview' | 'visits' | 'vitals' | 'treatment' | 'shared';
+type PatientTab = 'overview' | 'visits' | 'vitals' | 'treatment' | 'shared' | 'timeline';
 
 function tabBar(id: string, active: PatientTab): string {
   const link = (tab: PatientTab, label: string): string =>
     `<a href="#/patients/${esc(id)}${tab === 'overview' ? '' : `/${tab}`}" class="${active === tab ? 'active' : ''}">${esc(label)}</a>`;
-  return `<nav class="tabs">${link('overview', t('overview'))}${link('visits', t('visits'))}${link('vitals', t('vitals'))}${link('treatment', t('treatment'))}${link('shared', t('sharedRecord'))}</nav>`;
+  return `<nav class="tabs">${link('overview', t('overview'))}${link('timeline', t('timeline'))}${link('visits', t('visits'))}${link('vitals', t('vitals'))}${link('treatment', t('treatment'))}${link('shared', t('sharedRecord'))}</nav>`;
 }
 
 function headerHtml(
@@ -377,6 +378,7 @@ function currentTab(): PatientTab {
   if (hash.includes('/vitals')) return 'vitals';
   if (hash.includes('/treatment')) return 'treatment';
   if (hash.includes('/shared')) return 'shared';
+  if (hash.includes('/timeline')) return 'timeline';
   return 'overview';
 }
 
@@ -395,6 +397,10 @@ export function renderPatientDetail(root: HTMLElement, id: string, tab: PatientT
   }
   if (tab === 'shared') {
     renderSharedTab(root, id);
+    return;
+  }
+  if (tab === 'timeline') {
+    timelineHtml(root, id);
     return;
   }
   renderOverviewTab(root, id);

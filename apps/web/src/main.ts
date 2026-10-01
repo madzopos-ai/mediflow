@@ -11,6 +11,8 @@ import { renderDashboard } from './views/dashboard.js';
 import { renderCalendar } from './views/calendar.js';
 import { renderPatientDetail, renderPatients } from './views/patients.js';
 import { renderScanner } from './views/scanner.js';
+import { checkinHtml } from './views/qrCheckin.js';
+import { renderRecall } from './views/recall.js';
 import { renderFinance } from './views/finance.js';
 import { renderInsurers } from './views/insurers.js';
 import { renderTeam } from './views/team.js';
@@ -31,10 +33,12 @@ const NAV: NavItem[] = [
   { hash: '#/calendar', label: 'calendar' },
   { hash: '#/patients', label: 'patients' },
   { hash: '#/scanner', label: 'scanner' },
+  { hash: '#/checkin', label: 'patientQr' },
   { hash: '#/finance', label: 'finance' },
   { hash: '#/insurers', label: 'insurers' },
   { hash: '#/team', label: 'team' },
   { hash: '#/whatsapp', label: 'whatsapp' },
+  { hash: '#/recall', label: 'recall' },
 ];
 
 /** The patient app is a different world: its own tabs, none of the staff's. */
@@ -366,10 +370,22 @@ function routeStaff(hash: string, root: HTMLElement): void {
     renderPatientDetail(
       root,
       id,
-      tab === 'visits' ? 'visits' : tab === 'vitals' ? 'vitals' : tab === 'treatment' ? 'treatment' : tab === 'shared' ? 'shared' : 'overview',
+      tab === 'visits'
+        ? 'visits'
+        : tab === 'vitals'
+          ? 'vitals'
+          : tab === 'treatment'
+            ? 'treatment'
+            : tab === 'shared'
+              ? 'shared'
+              : tab === 'timeline'
+                ? 'timeline'
+                : 'overview',
     );
   } else if (hash.startsWith('#/patients')) renderPatients(root, (h) => (window.location.hash = h));
   else if (hash.startsWith('#/scanner')) renderScanner(root);
+  else if (hash.startsWith('#/checkin')) checkinHtml(root);
+  else if (hash.startsWith('#/recall')) renderRecall(root);
   else if (hash.startsWith('#/finance')) renderFinance(root);
   else if (hash.startsWith('#/insurers')) renderInsurers(root);
   else if (hash.startsWith('#/team')) renderTeam(root);

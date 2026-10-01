@@ -35,6 +35,12 @@ const sendSchema = z.object({
   replyToMessageId: idSchema.nullable().optional(),
 });
 
+const recallSchema = z.object({
+  patientId: idSchema,
+  body: z.string().trim().min(1).max(4096),
+  followUpId: idSchema.nullable().optional(),
+});
+
 const inboundSchema = z.object({
   /** Provider account the message arrived on. Resolves the clinic. */
   phoneNumberId: z.string().trim().min(1).max(64),
@@ -212,6 +218,53 @@ export async function registerMessagingRoutes(app: FastifyInstance): Promise<voi
         limit: query.limit,
         offset: query.offset,
       };
+    }),
+  );
+
+  /**
+   * Batch recall queue: the doctor reviews the due list, then enqueues one row
+   * per ticked patient.
+   *
+   * The opt-in check is re-read here rather than trusted from the list the
+   * doctor reviewed: a patient can opt out between the scan and the send, and
+   * consent is the one thing that must never go stale. `skipped` is a normal
+   * outcome, not an error, so the caller can report "3 queued, 1 skipped".
+   *
+   * `dedupeKey` carries the follow-up id and the day, so pressing the button
+   * twice cannot message a patient twice on the same day; the unique index on
+   * (clinic_id, dedupe_key) is what actually guarantees it.
+   */
+  app.post(
+    '/outbox/recall',
+    { preHandler: requireCapability('whatsapp:write') },
+    handler(async (request) => {
+      const body = parseBody(request, recallSchema, 'recall');
+      const tenant = tenantOf(request);
+      const patient = tenant.get<Row>('patients', body.patientId);
+      if (!patient) throw ApiError.notFound('Patient not found.');
+
+      // Consent gate. An opted-out patient is reported, never silently sent.
+      if (!patient['whatsapp_opt_in']) {
+        return { queued: false, reason: 'opted-out' as const };
+      }
+      // A number that is missing or not E.164 is a data problem, not a send:
+      // report it rather than queueing a row the gateway can never deliver.
+      const to = normalizePhone(String(patient['whatsapp_number'] ?? patient['phone'] ?? ''));
+      if (!to || !isValidE164(to)) {
+        return { queued: false, reason: 'no-phone' as const };
+      }
+
+      const now = new Date().toISOString();
+      const result = queueOutbound(tenant, {
+        to,
+        body: body.body,
+        template: 'followup_checkin',
+        channel: 'whatsapp',
+        patientId: body.patientId,
+        dedupeKey: `recall:${body.followUpId ?? body.patientId}:${now.slice(0, 10)}`,
+        now,
+      });
+      return { queued: true, reason: 'ok' as const, enqueued: result.enqueued };
     }),
   );
 

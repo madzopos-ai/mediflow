@@ -10,10 +10,10 @@ title MediFlow - One-Click Server Setup
 ::  It does, by itself, in order:
 ::    [1] checks Node.js and Git (installs them if missing)
 ::    [2] downloads/updates the program into C:\mediflow
-::    [3] installs libraries + builds everything
-::    [4] finds this PC's address on the clinic network
+::    [3] installs libraries + builds the servers
+::    [4] publishes this PC on its stable ngrok address (one-time authtoken)
 ::    [5] asks TWO things only: Firebase key file + project name
-::    [6] registers auto-start tasks (API, gateway, website - back after
+::    [6] registers auto-start tasks (API, gateway, tunnel - back after
 ::        every reboot with no login needed, sessions survive on disk)
 ::    [7] starts everything NOW and adds doctors (loop, as many as you have)
 ::    [8] prints the website address + what to test
@@ -117,71 +117,49 @@ if not exist "%ROOT%\node_modules\.package-lock.json" (
   echo [3/8] Libraries already installed.
 )
 
-:: ---------- [4] public address via Tailscale Funnel ----------
+:: ---------- [4] public address via ngrok (proven on this machine before) ----------
 :: The website lives on Firebase (public internet) and must reach the API on
-:: this PC. Funnel opens an outbound-only line - no router changes, no open
-:: ports. One stable address per PC, free. Needs a one-time browser login.
-echo [4/8] Making this PC reachable from anywhere (Tailscale Funnel)...
-where tailscale >nul 2>&1
-if %errorlevel% neq 0 (
-  echo       Installing Tailscale - one time download...
-  winget install --id Tailscale.Tailscale -e --silent --accept-source-agreements --accept-package-agreements
-  set "PATH=%PATH%;C:\Program Files\Tailscale"
-)
-where tailscale >nul 2>&1
-if %errorlevel% neq 0 (
-  echo  ERROR: Tailscale did not install. Install it from https://tailscale.com/download
-  echo  then double-click this file again.
+:: this PC. ngrok opens an outbound-only line - no router changes, no open
+:: ports. Your static domain keeps working, so the address never changes.
+:: ngrok runs as a plain process: no services, no permission split, none of
+:: the Tailscale daemon trouble.
+echo [4/8] Making this PC reachable from anywhere (ngrok tunnel)...
+set "NGROK_EXE="
+if exist "%SETUPDIR%ngrok.exe" set "NGROK_EXE=%SETUPDIR%ngrok.exe"
+if not defined NGROK_EXE if exist "%USERPROFILE%\Desktop\ngrok.exe" set "NGROK_EXE=%USERPROFILE%\Desktop\ngrok.exe"
+if not defined NGROK_EXE for /f "delims=" %%n in ('where ngrok 2^>nul') do if not defined NGROK_EXE set "NGROK_EXE=%%n"
+if not defined NGROK_EXE (
+  echo  ERROR: ngrok.exe not found. Copy it next to this file
+  echo  - you already have it on the Desktop - and run again.
   pause
   exit /b 1
 )
-:taillogin
-set "FUNNEL_OK="
-if exist "%SETUPDIR%public-url.txt" (
-  set /p "SAVED_URL=" < "%SETUPDIR%public-url.txt"
-  if defined SAVED_URL (
-    echo       Found a previous address - checking if it still answers...
-    for /f "delims=" %%c in ('curl -s --max-time 20 -o nul -w "%%{http_code}" "!SAVED_URL!/health" 2^>nul') do set "HCODE=%%c"
-    if "!HCODE!"=="200" (
-      echo       Already online at !SAVED_URL! - skipping login steps.
-      set "FUNNEL_OK=1"
-      set "PUBLIC_URL=!SAVED_URL!"
-      goto taillogged
-    )
-    echo       Old address is quiet - continuing setup fresh.
-  )
-)
-tailscale status >nul 2>&1
-if %errorlevel% equ 0 goto taillogged
-echo       Restarting the Tailscale service once to clear any stuck state...
-net stop Tailscale >nul 2>&1
-net start Tailscale >nul 2>&1
-timeout /t 8 /nobreak >nul
-tailscale status >nul 2>&1
-if %errorlevel% equ 0 goto taillogged
-set "TAILTRIES=0"
-:tailloop
-tailscale status >nul 2>&1
-if %errorlevel% equ 0 goto taillogged
-set /a TAILTRIES+=1
-if !TAILTRIES! GTR 10 (
+echo       Found ngrok.
+if not defined NGROK_DOMAIN (
   echo.
-  echo  STUCK: this window cannot talk to Tailscale, but the Tailscale app
-  echo  itself may be fine. Open the Tailscale app, make sure it shows
-  echo  Connected, then run this file again. Send a photo if it persists.
-  pause
-  exit /b 1
+  echo  Your public name, kept forever. Press Enter to accept
+  echo  [imagerial-unconflictive-faviola.ngrok-free.dev]:
+  set /p "NGROK_DOMAIN=  Domain: "
+  if not defined NGROK_DOMAIN set "NGROK_DOMAIN=imagerial-unconflictive-faviola.ngrok-free.dev"
 )
-echo.
-echo  ONE-TIME step: a login link appears below - open it in the browser,
-echo  log in with any free account, approve this PC, then wait here.
-echo  This window continues alone once approved.
-echo.
-tailscale up
-timeout /t 25 /nobreak >nul
-goto tailloop
-:taillogged
-echo       Tailscale connected.
+if not exist "%SETUPDIR%ngrok.yml" (
+  echo.
+  echo  ONE-TIME step: paste your ngrok authtoken.
+  echo  Find it at dashboard.ngrok.com, top-left, Your Authtoken.
+  echo  Copy the whole token, paste here, Enter. Asked once ever.
+  set /p "NGROK_TOKEN=  Authtoken: "
+  if not defined NGROK_TOKEN (
+    echo  ERROR: authtoken is required once. Run again when you have it.
+    pause
+    exit /b 1
+  )
+  (
+  echo version: 3
+  echo authtoken: !NGROK_TOKEN!
+  ) > "%SETUPDIR%ngrok.yml"
+  set "NGROK_TOKEN="
+  echo       Saved next to this file, never uploaded anywhere.
+)
 
 :: ---------- folders ----------
 if not exist "%ROOT%\data" mkdir "%ROOT%\data"
@@ -240,6 +218,7 @@ echo set "GATEWAY_ADMIN_TOKEN=!GATEWAY_ADMIN_TOKEN!"
 echo set "GW_PROJECT_ID=!GW_PROJECT_ID!"
 echo set "FIREBASE_KEY=!FIREBASE_KEY!"
 echo set "LANIP=!LANIP!"
+echo set "NGROK_DOMAIN=!NGROK_DOMAIN!"
 ) > "%SETUPDIR%server.env.bat"
 echo       Saved. Secrets live ONLY in this folder, never on the internet.
 
@@ -262,42 +241,50 @@ echo       Build OK.
 call :writerunner "run-api.bat" "apps\api" "dist\index.js" "api.log" "PORT=4000" "GATEWAY_URL=http://localhost:10000"
 call :writerunner "run-gateway.bat" "apps\baileys-gateway" "dist\index.js" "gateway.log" "PORT=10000" "GATEWAY_CONFIG=%ROOT%\gateway-config.json"
 
-:: Funnel runner: publishes localhost:4000 as https://<this-pc>.<tailnet>.ts.net
-:: for the Firebase website to call. Restart-loop like the rest; the address
-:: itself is stable per PC and never changes afterward.
+:: Ngrok runner: publishes localhost:4000 as https://<your-domain> for the
+:: Firebase website to call. Restart-loop like the rest; a static domain
+:: means the address survives every restart and every rerun.
 (
 echo @echo off
 echo :loop
-echo tailscale funnel --https=443 4000 ^>^> "%SETUPDIR%logs\funnel.log" 2^>^&1
+echo "%NGROK_EXE%" http --config="%SETUPDIR%ngrok.yml" --url=%NGROK_DOMAIN% 4000 ^>^> "%SETUPDIR%logs\ngrok.log" 2^>^&1
 echo timeout /t 30 /nobreak ^>nul
 echo goto loop
-) > "%SETUPDIR%run-funnel.bat"
+) > "%SETUPDIR%run-ngrok.bat"
 
 :: ---------- [7] auto-start tasks (back after every reboot, no login) ----------
 echo.
 echo [7/8] Registering auto-start...
 call :registertask "MediFlowAPI" "run-api.bat"
 call :registertask "MediFlowGateway" "run-gateway.bat"
-call :registertask "MediFlowFunnel" "run-funnel.bat"
+call :registertask "MediFlowNgrok" "run-ngrok.bat"
+schtasks /Delete /TN "MediFlowFunnel" /F >nul 2>&1
 schtasks /Delete /TN "MediFlowWeb" /F >nul 2>&1
 
-:: ---------- publish the API address ----------
+:: ---------- publish the API address (static domain: known, not discovered) ----------
 echo.
 echo [7/8] Publishing the public address...
-if defined FUNNEL_OK goto skiprediscover
-tailscale funnel reset >nul 2>&1
-for /f "delims=" %%u in ('node "%ROOT%\tools\local-server\tailnet-url.cjs"') do set "PUBLIC_URL=%%u"
-if not defined PUBLIC_URL (
-  echo  ERROR: no funnel address found. Open Tailscale, check this PC is
-  echo  logged in, then run this file again.
-  pause
-  exit /b 1
-)
+set "PUBLIC_URL=https://%NGROK_DOMAIN%"
 echo !PUBLIC_URL! > "%SETUPDIR%public-url.txt"
-:skiprediscover
+schtasks /Run /TN "MediFlowNgrok" >nul 2>&1
+set "NGROK_TRIES=0"
+:ngrokverify
+for /f "delims=" %%c in ('curl -s --max-time 15 -o nul -w "%%{http_code}" "!PUBLIC_URL!/health" 2^>nul') do set "HCODE=%%c"
+if "!HCODE!"=="200" goto ngrokok
+set /a NGROK_TRIES+=1
+if !NGROK_TRIES! GEQ 8 (
+  echo  WARNING: tunnel not answering yet - continuing anyway, doctors next.
+  echo  If the site cannot reach the API later, open logs\ngrok.log:
+  echo  a domain error there means the name is taken - pick another at
+  echo  dashboard.ngrok.com under Static Domains and run again.
+  goto ngrokok
+)
+echo       Waiting for tunnel (!NGROK_TRIES!/8)...
+timeout /t 15 /nobreak >nul
+goto ngrokverify
+:ngrokok
 echo       Public address: !PUBLIC_URL!
-echo       It never changes for this PC. Send it to your developer ONCE -
-echo       he points the website at it and you never touch this again.
+echo       It never changes. The website already points at it.
 
 :: ---------- stop anything squatting our ports, then start now ----------
 echo.
@@ -305,7 +292,7 @@ echo [8/8] Starting everything now...
 powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-NetTCPConnection -LocalPort 4000,10000 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }" >nul 2>&1
 schtasks /Run /TN "MediFlowAPI" >nul 2>&1
 schtasks /Run /TN "MediFlowGateway" >nul 2>&1
-schtasks /Run /TN "MediFlowFunnel" >nul 2>&1
+schtasks /Run /TN "MediFlowNgrok" >nul 2>&1
 timeout /t 20 /nobreak >nul
 
 :: ---------- doctors (loop: as many clinics as you have) ----------

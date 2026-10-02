@@ -23,21 +23,29 @@ const { openDatabase } = require('../dist/db/index.js');
 const { bootstrapOwner, BootstrapError } = require('../dist/services/bootstrap.js');
 
 async function main() {
-  const [emailRaw, password, ...nameParts] = process.argv.slice(2);
+  const rawArgs = process.argv.slice(2);
+  // --json prints ONLY a machine-readable line (for setup scripts), no chatter.
+  const jsonMode = rawArgs.includes('--json');
+  const args = rawArgs.filter((a) => a !== '--json');
+  const [emailRaw, password, ...nameParts] = args;
   const email = (emailRaw ?? '').trim();
   const clinicName = nameParts.join(' ').trim() || undefined;
 
   if (!email || !password) {
-    console.error('Usage: node apps/api/scripts/create-owner.mjs <email> <password> [clinic-name]');
+    console.error('Usage: node apps/api/scripts/create-owner.mjs <email> <password> [clinic-name] [--json]');
     process.exit(2);
   }
 
   const databaseFile = process.env.DATABASE_FILE ?? './data/mediflow.db';
-  console.log(`Database: ${databaseFile}`);
+  if (!jsonMode) console.log(`Database: ${databaseFile}`);
   const db = openDatabase({ file: databaseFile });
 
   try {
     const result = await bootstrapOwner(db, { email, password, clinicName });
+    if (jsonMode) {
+      console.log(JSON.stringify(result));
+      return;
+    }
     console.log('Created:');
     console.log(`  Clinic: ${result.clinicName} (${result.clinicId})`);
     console.log(`  Owner:  ${result.ownerEmail} (${result.ownerUserId})`);

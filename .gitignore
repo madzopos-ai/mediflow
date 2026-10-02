@@ -40,3 +40,4 @@ server.env.bat
 firebase-key.json
 *-service.log
 run-*.bat
+gateway-config.json

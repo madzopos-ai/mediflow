@@ -136,8 +136,42 @@ if %errorlevel% neq 0 (
   exit /b 1
 )
 :taillogin
+set "FUNNEL_OK="
+if exist "%SETUPDIR%public-url.txt" (
+  set /p "SAVED_URL=" < "%SETUPDIR%public-url.txt"
+  if defined SAVED_URL (
+    echo       Found a previous address - checking if it still answers...
+    for /f "delims=" %%c in ('curl -s --max-time 20 -o nul -w "%%{http_code}" "!SAVED_URL!/health" 2^>nul') do set "HCODE=%%c"
+    if "!HCODE!"=="200" (
+      echo       Already online at !SAVED_URL! - skipping login steps.
+      set "FUNNEL_OK=1"
+      set "PUBLIC_URL=!SAVED_URL!"
+      goto taillogged
+    )
+    echo       Old address is quiet - continuing setup fresh.
+  )
+)
 tailscale status >nul 2>&1
 if %errorlevel% equ 0 goto taillogged
+echo       Restarting the Tailscale service once to clear any stuck state...
+net stop Tailscale >nul 2>&1
+net start Tailscale >nul 2>&1
+timeout /t 8 /nobreak >nul
+tailscale status >nul 2>&1
+if %errorlevel% equ 0 goto taillogged
+set "TAILTRIES=0"
+:tailloop
+tailscale status >nul 2>&1
+if %errorlevel% equ 0 goto taillogged
+set /a TAILTRIES+=1
+if !TAILTRIES! GTR 10 (
+  echo.
+  echo  STUCK: this window cannot talk to Tailscale, but the Tailscale app
+  echo  itself may be fine. Open the Tailscale app, make sure it shows
+  echo  Connected, then run this file again. Send a photo if it persists.
+  pause
+  exit /b 1
+)
 echo.
 echo  ONE-TIME step: a login link appears below - open it in the browser,
 echo  log in with any free account, approve this PC, then wait here.
@@ -145,7 +179,7 @@ echo  This window continues alone once approved.
 echo.
 tailscale up
 timeout /t 25 /nobreak >nul
-goto taillogin
+goto tailloop
 :taillogged
 echo       Tailscale connected.
 
@@ -250,6 +284,7 @@ schtasks /Delete /TN "MediFlowWeb" /F >nul 2>&1
 :: ---------- publish the API address ----------
 echo.
 echo [7/8] Publishing the public address...
+if defined FUNNEL_OK goto skiprediscover
 tailscale funnel reset >nul 2>&1
 for /f "delims=" %%u in ('node "%ROOT%\tools\local-server\tailnet-url.cjs"') do set "PUBLIC_URL=%%u"
 if not defined PUBLIC_URL (
@@ -259,6 +294,7 @@ if not defined PUBLIC_URL (
   exit /b 1
 )
 echo !PUBLIC_URL! > "%SETUPDIR%public-url.txt"
+:skiprediscover
 echo       Public address: !PUBLIC_URL!
 echo       It never changes for this PC. Send it to your developer ONCE -
 echo       he points the website at it and you never touch this again.

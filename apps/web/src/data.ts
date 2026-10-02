@@ -6,7 +6,7 @@
  * keeps using the API. Screens never know which one is active.
  */
 
-import { OfflineQueuedError, api, getToken, readQueue } from './api.js';
+import { OfflineQueuedError, api, getToken, ngrokHeaders, readQueue } from './api.js';
 
 /** Fresh staff profile state for the onboarding gate (never trust the token). */
 export async function staffMe(): Promise<{
@@ -822,7 +822,7 @@ export async function patientLogin(phone: string, code: string): Promise<void> {
   const base = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:4000';
   const response = await fetch(`${base}/auth/patient`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...ngrokHeaders() },
     body: JSON.stringify({ phone, code }),
   });
   if (!response.ok) throw new Error('Incorrect phone number or code.');
@@ -839,6 +839,7 @@ async function patApi<T>(method: 'GET' | 'POST' | 'PATCH', path: string, body?: 
     headers: {
       ...(body === undefined ? {} : { 'content-type': 'application/json' }),
       authorization: `Bearer ${token}`,
+      ...ngrokHeaders(),
     },
     body: body === undefined ? null : JSON.stringify(body),
   });
@@ -964,6 +965,7 @@ export async function doctorSlots(
   const base = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:4000';
   const response = await fetch(
     `${base}/public/${slug}/slots?days=${days}&doctorId=${encodeURIComponent(doctorId)}`,
+    { headers: { ...ngrokHeaders() } },
   );
   if (!response.ok) throw new Error('Could not load availability.');
   return ((await response.json()) as { days: { dateKey: string; slots: { startsAt: string; endsAt: string; localStart: string; localEnd: string }[] }[] }).days;
@@ -993,7 +995,7 @@ export async function avatarObjectUrl(networkId: string, asPatient: boolean): Pr
   const token = asPatient ? getPatientToken() : getToken();
   if (!token) return null;
   const response = await fetch(`${base}/network/avatars/${networkId}`, {
-    headers: { authorization: `Bearer ${token}` },
+    headers: { authorization: `Bearer ${token}`, ...ngrokHeaders() },
   });
   if (!response.ok) return null;
   const url = URL.createObjectURL(await response.blob());
@@ -1031,7 +1033,7 @@ export async function networkRegister(input: {
   const base = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:4000';
   const response = await fetch(`${base}/network/register`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...ngrokHeaders() },
     body: JSON.stringify(input),
   });
   if (!response.ok) {
@@ -1051,7 +1053,7 @@ export async function networkPatientLogin(phone: string, code: string): Promise<
   const base = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:4000';
   const response = await fetch(`${base}/auth/network`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...ngrokHeaders() },
     body: JSON.stringify({ phone, code }),
   });
   if (!response.ok) throw new Error('Incorrect phone number or code.');
@@ -1106,7 +1108,7 @@ export interface UiDirectory {
 
 export async function directory(): Promise<UiDirectory> {
   const base = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:4000';
-  const response = await fetch(`${base}/directory`);
+  const response = await fetch(`${base}/directory`, { headers: { ...ngrokHeaders() } });
   if (!response.ok) throw new Error('Directory unavailable.');
   return (await response.json()) as UiDirectory;
 }

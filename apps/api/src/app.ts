@@ -88,6 +88,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   await app.register(cors, {
     origin: config.corsOrigins.length > 0 ? config.corsOrigins : false,
     credentials: true,
+    // The browser sends this on every request when behind ngrok (it skips
+    // ngrok's interstitial page). Listed explicitly so preflights never
+    // depend on a framework default.
+    allowedHeaders: ['Content-Type', 'Authorization', 'ngrok-skip-browser-warning'],
   });
 
   app.setErrorHandler((error: FastifyError, request, reply) => {

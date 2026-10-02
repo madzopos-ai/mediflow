@@ -110,6 +110,19 @@ export function enqueueMutation(method: string, path: string, body: unknown): vo
   window.dispatchEvent(new CustomEvent('mf:queue-changed'));
 }
 
+/**
+ * ngrok's free tier shows a browser interstitial page unless every request
+ * carries this header. Harmless everywhere else (plain servers ignore unknown
+ * headers), and without it the app would try to parse an HTML warning page
+ * as JSON. Central definition so no call site can forget it.
+ */
+const NGROK_HEADERS = { 'ngrok-skip-browser-warning': 'true' };
+
+/** Shared by data.ts so every direct fetch carries the ngrok bypass too. */
+export function ngrokHeaders(): Record<string, string> {
+  return { ...NGROK_HEADERS };
+}
+
 async function send(method: string, path: string, body: unknown, token: string): Promise<Response> {
   // A bodiless request must not claim a JSON content-type: Fastify rejects an
   // empty body advertised as JSON with a 400 before any route runs.
@@ -119,6 +132,7 @@ async function send(method: string, path: string, body: unknown, token: string):
     headers: {
       ...(hasBody ? { 'content-type': 'application/json' } : {}),
       ...(token ? { authorization: `Bearer ${token}` } : {}),
+      ...NGROK_HEADERS,
     },
     body: hasBody ? JSON.stringify(body) : null,
   });
@@ -226,7 +240,7 @@ export async function syncQueue(): Promise<{ done: number; failed: number }> {
 export async function loginRequest(email: string, password: string): Promise<{ token: string; user: unknown }> {
   const response = await fetch(`${BASE}/auth/login`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...NGROK_HEADERS },
     body: JSON.stringify({ email, password }),
   });
   if (!response.ok) {
@@ -245,7 +259,7 @@ export async function loginRequest(email: string, password: string): Promise<{ t
 export async function requestPasswordReset(email: string): Promise<void> {
   const response = await fetch(`${BASE}/auth/password/forgot`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...NGROK_HEADERS },
     body: JSON.stringify({ email }),
   });
   if (!response.ok) {
@@ -262,6 +276,7 @@ export async function requestPasswordReset(email: string): Promise<void> {
 export async function checkPasswordResetToken(token: string): Promise<boolean> {
   const response = await fetch(
     `${BASE}/auth/password/reset?token=${encodeURIComponent(token)}`,
+    { headers: { ...NGROK_HEADERS } },
   );
   if (response.ok) return true;
   const body = await response.json().catch(() => null) as { code?: string } | null;
@@ -276,7 +291,7 @@ export async function checkPasswordResetToken(token: string): Promise<boolean> {
 export async function redeemPasswordResetToken(token: string, password: string): Promise<void> {
   const response = await fetch(`${BASE}/auth/password/reset`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...NGROK_HEADERS },
     body: JSON.stringify({ token, password }),
   });
   if (!response.ok) {
@@ -299,7 +314,7 @@ export async function redeemPasswordResetToken(token: string, password: string):
 export async function exchangeFirebaseSession(idToken: string): Promise<{ token: string; user: unknown }> {
   const response = await fetch(`${BASE}/auth/firebase`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...NGROK_HEADERS },
     body: JSON.stringify({ idToken }),
   });
   if (!response.ok) {

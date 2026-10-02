@@ -959,4 +959,32 @@ export const MIGRATIONS: Migration[] = [
         WHERE used_at IS NULL;
     `,
   },
+  {
+    id: 22,
+    name: 'wa_booking_state',
+    sql: `
+      -- WhatsApp booking conversations, one active row per phone number.
+      --
+      -- Booking over chat is multi-turn ("I want tomorrow" -> "at what time?"
+      -- -> "confirm Tuesday 5pm? yes/no"), so the API must remember where each
+      -- conversation stands between messages. Steps: awaiting_time (date known,
+      -- hour missing or ambiguous) and awaiting_confirm (concrete slot proposed,
+      -- waiting for the patient's yes/no). A row older than a day is treated as
+      -- expired and replaced, so a stale "yes" can never confirm last week's slot.
+      CREATE TABLE wa_booking_state (
+        id TEXT PRIMARY KEY,
+        clinic_id TEXT NOT NULL,
+        phone TEXT NOT NULL,
+        step TEXT NOT NULL,
+        date_key TEXT,
+        time_minutes INTEGER,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (clinic_id) REFERENCES clinics(id) ON DELETE CASCADE,
+        UNIQUE (clinic_id, phone)
+      );
+      CREATE INDEX idx_wa_booking_state_lookup
+        ON wa_booking_state(clinic_id, phone);
+    `,
+  },
 ];

@@ -3,6 +3,7 @@ import {
   OfflineQueuedError,
   apptBook,
   apptCancel,
+  apptConfirm,
   apptReschedule,
   apptTransition,
   apptsRange,
@@ -113,7 +114,6 @@ export function renderCalendar(root: HTMLElement): void {
                 toast(`${t('bookedOk')} · ${name}`);
                 loadRequests();
                 load(dayKey(0), dayKey(7));
-                refreshBadge();
               })              .catch((error: unknown) => {
                 button.disabled = false;
                 toast(errorText(error), 'error');
@@ -170,15 +170,19 @@ export function renderCalendar(root: HTMLElement): void {
             const status = a.status ?? '';
             // Actions follow the appointment lifecycle: a cancelled or completed
             // appointment offers nothing (hence no reschedule button there).
+            // A pending WhatsApp draft offers confirm (becomes real, patient
+            // notified) or cancel (rejected) - nothing else.
+            const canConfirm = status === 'pending';
             const canCheckIn = status === 'scheduled' || status === 'confirmed';
             const canComplete = status === 'checked_in' || status === 'in_progress';
             const canReschedule = status === 'scheduled' || status === 'confirmed' || status === 'no_show';
-            const canCancel = status === 'scheduled' || status === 'confirmed' || status === 'checked_in' || status === 'in_progress' || status === 'no_show';
+            const canCancel = status === 'pending' || status === 'scheduled' || status === 'confirmed' || status === 'checked_in' || status === 'in_progress' || status === 'no_show';
             return `<tr>
               <td>${esc(fmtDateTime(a.startsAt))}</td>
               <td>${esc(a.patientName ?? '—')}</td>
-              <td><span class="pill">${esc(statusLabel(status))}</span></td>
+              <td><span class="pill">${esc(status === 'pending' ? t('pendingBooking') : statusLabel(status))}</span></td>
               <td class="row-actions">
+                ${canConfirm ? `<button class="primary" data-confirm="${esc(a.id)}">${esc(t('confirmBooking'))}</button>` : ''}
                 ${canCheckIn ? `<button data-act="in" data-id="${esc(a.id)}">${esc(t('checkIn'))}</button>` : ''}
                 ${canComplete ? `<button data-act="done" data-id="${esc(a.id)}">${esc(t('complete'))}</button>` : ''}
                 ${canReschedule ? `<button data-resched="${esc(a.id)}" data-when="${esc(a.startsAt)}" data-who="${esc(a.patientName ?? '')}">${esc(t('reschedule'))}</button>` : ''}
@@ -197,6 +201,21 @@ export function renderCalendar(root: HTMLElement): void {
             apptTransition(id, act === 'in' ? 'in' : 'done')
               .then(() => load(from, to))
               .catch((error: unknown) => {
+                if (error instanceof OfflineQueuedError) toast(t('queued'));
+                else toast(errorText(error), 'error');
+              });
+          });
+        });
+        list.querySelectorAll<HTMLButtonElement>('button[data-confirm]').forEach((button) => {
+          button.addEventListener('click', () => {
+            button.disabled = true;
+            apptConfirm(button.dataset.confirm ?? '')
+              .then(() => {
+                toast(t('book'));
+                load(from, to);
+              })
+              .catch((error: unknown) => {
+                button.disabled = false;
                 if (error instanceof OfflineQueuedError) toast(t('queued'));
                 else toast(errorText(error), 'error');
               });
@@ -321,12 +340,6 @@ export function renderCalendar(root: HTMLElement): void {
   });
 }
 
-function refreshBadge(): void {
-  void import('./whatsapp.js')
-    .then((m) => m.refreshWhatsappBadge())
-    .catch(() => undefined);
-}
-
 /** ISO instant -> datetime-local value (browser-local, no seconds). */
 function toLocalInput(iso: string): string {
   const d = new Date(iso);
@@ -440,7 +453,6 @@ function openRescheduleModal(
         toast(whatsappQueued ? t('rescheduledWhatsapp') : t('rescheduledOk'));
         close();
         onDone();
-        refreshBadge();
       })
       .catch((error: unknown) => {
         confirm.disabled = false;
@@ -480,7 +492,6 @@ function openCancelModal(root: HTMLElement, id: string, onDone: () => void): voi
         toast(whatsappQueued ? t('cancelledWhatsapp') : t('cancel'));
         close();
         onDone();
-        refreshBadge();
       })
       .catch((error: unknown) => {
         button.disabled = false;

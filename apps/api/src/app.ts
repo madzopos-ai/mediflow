@@ -24,6 +24,7 @@ import { registerAppointmentRoutes } from './routes/appointments.js';
 import { registerScheduleRoutes } from './routes/schedule.js';
 import { registerWaitlistRoutes } from './routes/waitlist.js';
 import { registerMessagingRoutes } from './routes/messaging.js';
+import { registerGatewayRoutes } from './routes/gateway.js';
 import { registerCareRoutes } from './routes/care.js';
 import { registerRecordRoutes } from './routes/records.js';
 import { registerVisitFlowRoutes } from './routes/visitflow.js';
@@ -144,6 +145,9 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   await app.register(async (instance) => {
     await registerMessagingRoutes(instance, config);
   });
+  // Gateway pull endpoints: no session, token-authenticated. The gateway
+  // polls these; the API never calls out to the gateway except for pairing.
+  await app.register(registerGatewayRoutes);
   await app.register(registerCareRoutes);
   await app.register(registerRecordRoutes);
   await app.register(registerVisitFlowRoutes);

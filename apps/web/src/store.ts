@@ -1583,7 +1583,7 @@ export async function daySchedule(dateKey: string): Promise<{ closed: boolean; b
   return { closed: false, busy, free };
 }
 
-export async function setAppointmentStatus(id: string, status: 'scheduled' | 'checked_in' | 'completed' | 'cancelled'): Promise<void> {
+export async function setAppointmentStatus(id: string, status: 'scheduled' | 'confirmed' | 'checked_in' | 'completed' | 'cancelled'): Promise<void> {
   const { db, session } = await context();
   await updateDoc(doc(db, 'clinics', session.clinicId, 'appointments', id), {
     status,

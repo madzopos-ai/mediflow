@@ -21,6 +21,7 @@ import {
   validateBooking,
   zonedTimeToUtc,
   type Appointment,
+  type AppointmentStatus,
   type ClinicSchedule,
   type Slot,
   type Specialty,
@@ -66,6 +67,17 @@ export interface CreateBookingInput {
   isPublicBooking?: boolean;
   feeMinor?: number;
   createdBy?: string | null;
+  /**
+   * Override the computed status. WhatsApp bookings arrive as 'pending':
+   * held on the calendar but awaiting staff confirmation.
+   */
+  status?: AppointmentStatus;
+  /**
+   * Skip the post-commit confirmation + reminder scheduling. Used with
+   * status 'pending': nothing may go out until a human confirms. The staff
+   * confirm action schedules both explicitly.
+   */
+  quiet?: boolean;
 }
 
 /** Appointments that occupy a slot, for a date range, in this clinic only. */
@@ -196,9 +208,10 @@ export function createBooking(
       : 0;
 
   const status: Appointment['status'] =
-    isPublic && ctx.deposit.require && ctx.deposit.amountMinor > 0 && !ctx.booking.autoConfirmWithoutDeposit
+    input.status ??
+    (isPublic && ctx.deposit.require && ctx.deposit.amountMinor > 0 && !ctx.booking.autoConfirmWithoutDeposit
       ? 'scheduled'
-      : 'confirmed';
+      : 'confirmed');
 
   const holdExpiresAt =
     isPublic && status === 'scheduled'
@@ -281,8 +294,15 @@ export function createBooking(
   // transaction scope. Doing it inside `run()` would mix reminder writes into
   // the overlap-check transaction, and a reminder failure would then roll back a
   // booking the patient has already been told is confirmed.
-  scheduleAppointmentReminders(tenant, clinicId, appointment.id, { now });
-  queueBookingConfirmation(tenant, clinicId, appointment, now);
+  //
+  // `quiet` bookings (WhatsApp drafts awaiting staff confirmation) schedule
+  // nothing: the confirm action does both explicitly. A reminder for a booking
+  // nobody confirmed would message the patient about an appointment that may
+  // never happen.
+  if (!input.quiet) {
+    scheduleAppointmentReminders(tenant, clinicId, appointment.id, { now });
+    queueBookingConfirmation(tenant, clinicId, appointment, now);
+  }
 
   return appointment;
 }

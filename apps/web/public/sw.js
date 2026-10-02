@@ -12,7 +12,7 @@
  *      service worker cannot show which queued write belongs to which screen.
  */
 
-const VERSION = 'mediflow-v2';
+const VERSION = 'mediflow-v3';
 const SHELL_CACHE = `${VERSION}-shell`;
 const API_CACHE = `${VERSION}-api`;
 

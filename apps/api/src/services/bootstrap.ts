@@ -6,9 +6,10 @@
  * code. This fills that gap: one active clinic (default settings + schedule)
  * and one active owner, nothing else. No sample patients, no demo content.
  *
- * Used from two places, so there is exactly one code path to audit:
- * - `scripts/create-owner.mjs` (operator-run, e.g. Render Shell)
- * - `POST /system/bootstrap` (token-guarded HTTP, for hosts without a shell)
+ * Used from one place, so there is exactly one code path to audit:
+ * `scripts/create-owner.mjs`, run by the operator on the server itself.
+ * There is deliberately no HTTP endpoint for this: the first account must
+ * never be creatable over the network.
  *
  * The refusal rules are the security boundary, not the caller:
  * - any existing user aborts the whole thing, so this can only ever run on an

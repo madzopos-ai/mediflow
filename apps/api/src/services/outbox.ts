@@ -107,6 +107,12 @@ export interface ClaimOptions {
   workerId: string;
   limit?: number;
   now?: string;
+  /**
+   * When set, only rows for this channel are claimed. The gateway poll uses
+   * this to take WhatsApp rows without locking SMS/email rows it cannot send,
+   * which would otherwise sit locked until they go stale.
+   */
+  channel?: string;
 }
 
 /**
@@ -120,6 +126,8 @@ export function claimDue(db: Db, clinicId: string, options: ClaimOptions): Outbo
   const limit = Math.min(options.limit ?? 25, 200);
 
   const claim = db.transaction((): Row[] => {
+    const channelFilter = options.channel ? `AND channel = ?` : '';
+    const channelArgs = options.channel ? [options.channel] : [];
     const candidates = db
       .prepare(
         `SELECT * FROM outbox
@@ -127,10 +135,11 @@ export function claimDue(db: Db, clinicId: string, options: ClaimOptions): Outbo
             AND status = 'pending'
             AND scheduled_for <= ?
             AND attempts < max_attempts
+            ${channelFilter}
           ORDER BY priority ASC, scheduled_for ASC
           LIMIT ?`,
       )
-      .all(clinicId, now, limit) as Row[];
+      .all(clinicId, now, ...channelArgs, limit) as Row[];
 
     if (candidates.length === 0) return [];
 

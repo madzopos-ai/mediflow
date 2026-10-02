@@ -46,7 +46,7 @@ import {
   explainDay,
   rescheduleAppointment,
 } from '../services/appointments.js';
-import { cancelPendingReminders } from '../services/reminders.js';
+import { cancelPendingReminders, queueBookingConfirmation, scheduleAppointmentReminders } from '../services/reminders.js';
 import { queueOutbound } from '../services/outbox.js';
 import { syncPatientActivity } from '../services/activity.js';
 
@@ -86,6 +86,7 @@ const updateSchema = z.object({
 
 /** Legal status transitions. Anything else is a 409. */
 const TRANSITIONS: Record<AppointmentStatus, AppointmentStatus[]> = {
+  pending: ['confirmed', 'cancelled'],
   scheduled: ['confirmed', 'cancelled', 'no_show'],
   confirmed: ['checked_in', 'in_progress', 'cancelled', 'no_show'],
   checked_in: ['in_progress', 'completed', 'cancelled'],
@@ -345,7 +346,15 @@ export async function registerAppointmentRoutes(app: FastifyInstance): Promise<v
 
       tenant.update('appointments', id, values);
       if (existing.patientId) syncPatientActivity(tenant, existing.patientId);
-      return toAppointment(tenant.require<Row>('appointments', id));
+      const updated = toAppointment(tenant.require<Row>('appointments', id));
+      if (existing.status === 'pending' && body.status === 'confirmed') {
+        // A WhatsApp draft becomes real here: this is the moment the
+        // confirmation goes out and reminders are planned - never before.
+        const cid = request.tenant.clinicId;
+        scheduleAppointmentReminders(tenant, cid, updated.id, { now });
+        queueBookingConfirmation(tenant, cid, updated, now);
+      }
+      return updated;
     }),
   );
 

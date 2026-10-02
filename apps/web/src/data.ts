@@ -1350,6 +1350,18 @@ export async function apptTransition(id: string, action: 'in' | 'done' | 'cancel
   await api('POST', path, action === 'cancel' ? {} : undefined);
 }
 
+/**
+ * Confirms a WhatsApp draft (pending -> confirmed). The server queues the
+ * confirmation message and plans reminders at this moment - never before.
+ */
+export async function apptConfirm(id: string): Promise<void> {
+  if (await useFirestore()) {
+    await (await store()).setAppointmentStatus(id, 'confirmed');
+    return;
+  }
+  await api('PATCH', `/appointments/${id}`, { status: 'confirmed' });
+}
+
 export interface UiSlot {
   startsAt: string;
   endsAt: string;

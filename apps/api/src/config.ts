@@ -35,17 +35,6 @@ export interface Config {
   smtp: MailConfig | null;
   /** Public origin of the web app, used to build the password reset link. */
   publicWebUrl: string;
-  /**
-   * One-time bootstrap token for POST /system/bootstrap. Null when unset, in
-   * which case the endpoint behaves as if it does not exist.
-   *
-   * This exists because a fresh production database has no users, db:seed
-   * refuses to run in production, and the public join flow needs working SMTP
-   * for its verification code. Set it once, create the first owner, and either
-   * unset it or leave it: the endpoint additionally refuses whenever any user
-   * exists, so a leaked token is useless after first use.
-   */
-  bootstrapToken: string | null;
   publicBookingEnabled: boolean;
   defaultTimezone: string;
   reminderWorkerEnabled: boolean;
@@ -140,7 +129,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     gatewayAdminToken: (env.GATEWAY_ADMIN_TOKEN ?? '').trim() || null,
     smtp: loadMailConfig(env),
     publicWebUrl: (env.PUBLIC_WEB_URL ?? '').trim().replace(/\/+$/, ''),
-    bootstrapToken: (env.BOOTSTRAP_TOKEN ?? '').trim() || null,
     publicBookingEnabled: bool(env.PUBLIC_BOOKING_ENABLED, true),
     defaultTimezone: env.DEFAULT_TIMEZONE ?? 'UTC',
     reminderWorkerEnabled: bool(env.REMINDER_WORKER_ENABLED, !isProduction),

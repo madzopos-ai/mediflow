@@ -35,6 +35,7 @@ const STRINGS = {
   retry: { en: 'Retry', ar: 'إعادة المحاولة' },
   save: { en: 'Save', ar: 'حفظ' },
   cancel: { en: 'Cancel', ar: 'إلغاء' },
+  pendingBooking: { en: 'Awaiting confirmation', ar: 'بانتظار التأكيد' },
   close: { en: 'Close', ar: 'إغلاق' },
   search: { en: 'Search', ar: 'بحث' },
   show: { en: 'Show', ar: 'عرض' },

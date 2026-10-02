@@ -4,6 +4,7 @@
  */
 
 export const APPOINTMENT_STATUSES = [
+  'pending',
   'scheduled',
   'confirmed',
   'checked_in',
@@ -17,6 +18,7 @@ export type AppointmentStatus = (typeof APPOINTMENT_STATUSES)[number];
 
 /** Statuses that still occupy the calendar slot. */
 export const BLOCKING_APPOINTMENT_STATUSES: readonly AppointmentStatus[] = [
+  'pending',
   'scheduled',
   'confirmed',
   'checked_in',

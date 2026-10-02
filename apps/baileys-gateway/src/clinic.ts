@@ -33,6 +33,7 @@ import {
 
 import type { ClinicConfig } from './index.js';
 import type { SessionRegistry } from './registry.js';
+import { startApiPoll } from './apiPoll.js';
 import { isHighPriority, isSmsConfigured, sendSms } from './sms.js';
 
 const MAX_ATTEMPTS = 3;
@@ -67,7 +68,7 @@ function adminFor(clinic: ClinicConfig): Firestore {
   return getFirestore(app);
 }
 
-function toJid(e164: string): string {
+export function toJid(e164: string): string {
   return `${e164.replace(/[^0-9]/g, '')}@s.whatsapp.net`;
 }
 
@@ -75,6 +76,29 @@ function fromJid(jid: string | null | undefined): string | null {
   if (!jid) return null;
   const digits = jid.split('@')[0]?.replace(/[^0-9]/g, '') ?? '';
   return digits ? `+${digits}` : null;
+}
+
+/**
+ * Forwards one inbound patient message to the API's booking conversation.
+ *
+ * Silent when unconfigured (no MEDIFLOW_API_URL): pairing-only deployments
+ * have no booking flow and must not log errors about it. Anything else that
+ * fails is logged and dropped - the socket loop is more important than one
+ * booking hint, and the patient can always write again.
+ */
+async function forwardToApi(clinicId: string, sender: string, text: string): Promise<void> {
+  const base = (process.env['MEDIFLOW_API_URL'] ?? '').trim().replace(/\/+$/, '');
+  if (!base) return;
+  const token = (process.env['GATEWAY_ADMIN_TOKEN'] ?? '').trim();
+  if (!token) return;
+  const res = await fetch(`${base}/gateway/inbound`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ clinicId, from: sender, text: text.slice(0, 2000) }),
+  });
+  if (!res.ok) {
+    throw new Error(`API ${res.status} on /gateway/inbound`);
+  }
 }
 
 function messageText(message: Record<string, unknown> | undefined): string | null {
@@ -167,6 +191,31 @@ async function connectAndServe(
         `[${clinic.clinicId}] pairing failed: ${error instanceof Error ? error.message : String(error)}\n`,
       );
     }
+  }
+
+  // --- API outbox poll ---
+  // Same sending job as the Firestore drain below, but the queue lives in the
+  // API's SQLite outbox and this gateway polls it. This is what lets the
+  // gateway sit on a home PC behind NAT: every connection is outbound.
+  let apiConnected = false;
+  let stopApiPoll: () => void = () => undefined;
+  {
+    const apiUrl = (process.env['MEDIFLOW_API_URL'] ?? '').trim().replace(/\/+$/, '');
+    const adminToken = (process.env['GATEWAY_ADMIN_TOKEN'] ?? '').trim();
+    const rawMs = Number(process.env['GATEWAY_API_POLL_MS'] ?? '');
+    stopApiPoll = startApiPoll({
+      apiUrl,
+      adminToken,
+      clinicId: clinic.clinicId,
+      intervalMs: Number.isInteger(rawMs) && rawMs > 0 ? rawMs : 15_000,
+      isConnected: () => apiConnected,
+      send: async (to, body) => {
+        const sent = await sock.sendMessage(toJid(to), { text: body } satisfies AnyMessageContent);
+        return sent?.key.id ?? null;
+      },
+      log: (message) => process.stdout.write(`${message}\n`),
+      logError: (message) => process.stderr.write(`${message}\n`),
+    });
   }
 
   // --- manual-send sweep ---
@@ -280,6 +329,12 @@ async function connectAndServe(
       void handleInbound(db, clinic.clinicId, sender, text).catch((error: unknown) => {
         process.stderr.write(`[${clinic.clinicId}] inbound error: ${String(error).slice(0, 200)}\n`);
       });
+      // Booking conversations live in the API (it owns appointments and the
+      // schedule); the gateway just ferries the raw text. Fire-and-forget by
+      // design: a booking hint must never break the socket loop.
+      void forwardToApi(clinic.clinicId, sender, text).catch((error: unknown) => {
+        process.stderr.write(`[${clinic.clinicId}] api-forward error: ${String(error).slice(0, 200)}\n`);
+      });
     }
   });
 
@@ -293,6 +348,7 @@ async function connectAndServe(
         registry.setQr(clinic.clinicId, qr);
       }
       if (connection === 'open') {
+        apiConnected = true;
         // `registered` is the authoritative paired flag: it flips when Baileys
         // persists real credentials, not when the socket opens. The QR is
         // cleared here because an open connection means pairing finished, and a
@@ -314,9 +370,12 @@ async function connectAndServe(
         }
       }
       if (connection === 'connecting') {
+        apiConnected = false;
         registry.patch(clinic.clinicId, { state: state.creds.registered ? 'connecting' : 'pairing' });
       }
       if (connection === 'close') {
+        apiConnected = false;
+        stopApiPoll();
         stopDrain();
         registry.clearRequester(clinic.clinicId);
         registry.patch(clinic.clinicId, { state: 'disconnected', qr: null, qrUpdatedAt: null });

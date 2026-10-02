@@ -20,7 +20,7 @@ export function renderDashboard(root: HTMLElement): void {
         const rows = data.appointments
           .map(
             (a) =>
-              `<li><strong>${esc(fmtDateTime(a.startsAt))}</strong> — ${esc(a.patientName ?? a.id)} <span class="pill">${esc(statusLabel(a.status ?? ''))}</span></li>`,
+              `<li><strong>${esc(fmtDateTime(a.startsAt))}</strong> — ${esc(a.patientName ?? a.id)} <span class="pill">${esc(a.status === 'pending' ? t('pendingBooking') : statusLabel(a.status ?? ''))}</span></li>`,
           )
           .join('');
         today.innerHTML = `<h2>${esc(t('today'))}</h2>${rows ? `<ul class="list">${rows}</ul>` : `<p class="muted">${esc(t('noResults'))}</p>`}`;

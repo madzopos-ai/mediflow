@@ -26,7 +26,7 @@
     "@fastify/jwt": "^10.2.2",
     "@mediflow/shared": "*",
     "@types/better-sqlite3": "^7.6.12",
-    "better-sqlite3": "^11.7.0",
+    "better-sqlite3": "^12.9.0",
     "fastify": "^5.2.0",
     "firebase-admin": "^14.5.0",
     "zod": "^3.24.1"

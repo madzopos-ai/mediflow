@@ -72,25 +72,19 @@ for /f "delims=" %%i in ('where node 2^>nul') do (
   if not defined NODEPATH set "NODEPATH=%%i"
 )
 
-:: ---------- [1b] Git ----------
+:: ---------- [1b] Git (automatic: system, else winget, else portable download) ----------
+set "GITBIN=git"
 where git >nul 2>&1
-if %errorlevel% neq 0 (
-  echo [1/8] Git not found - trying to install it...
-  where winget >nul 2>&1
-  if %errorlevel% equ 0 (
-    winget install --id Git.Git -e --silent --accept-source-agreements --accept-package-agreements
-    set "PATH=%PATH%;C:\Program Files\Git\cmd"
-  )
-  where git >nul 2>&1
-  if %errorlevel% neq 0 (
-    echo.
-    echo  ERROR: Git is missing. Install it from https://git-scm.com
-    echo  then double-click this file again.
-    pause
-    exit /b 1
-  )
+if %errorlevel% neq 0 call :ensuregit
+"%GITBIN%" --version >nul 2>&1
+if errorlevel 1 (
+  echo.
+  echo  ERROR: Git could not be installed automatically.
+  echo  Install it from https://git-scm.com then double-click this file again.
+  pause
+  exit /b 1
 )
-echo [1/8] Git found.
+echo [1/8] Git ready.
 
 :: ---------- [2] download / update the program ----------
 if not exist "%ROOT%\.git" (
@@ -101,11 +95,10 @@ if not exist "%ROOT%\.git" (
     pause
     exit /b 1
   )
-) else (
-  echo [2/8] Updating MediFlow to the newest version...
-  git -C "%ROOT%" fetch origin
-  git -C "%ROOT%" checkout %BRANCH%
-  git -C "%ROOT%" pull --ff-only origin %BRANCH%
+) else (  echo [2/8] Updating MediFlow to the newest version...
+  "%GITBIN%" -C "%ROOT%" fetch origin
+  "%GITBIN%" -C "%ROOT%" checkout %BRANCH%
+  "%GITBIN%" -C "%ROOT%" pull --ff-only origin %BRANCH%
   if errorlevel 1 (
     echo  WARNING: update did not apply cleanly - continuing with what is there.
   )
@@ -279,10 +272,33 @@ exit /b 0
 if exist "%SETUPDIR%server.env.bat" call "%SETUPDIR%server.env.bat"
 exit /b 0
 
+:ensuregit
+:: Already handled by a previous run: portable Git waiting next to this file.
+if exist "%SETUPDIR%PortableGit\cmd\git.exe" (
+  set "GITBIN=%SETUPDIR%PortableGit\cmd\git.exe"
+  exit /b 0
+)
+where winget >nul 2>&1
+if %errorlevel% equ 0 (
+  echo [1/8] Installing Git with winget...
+  winget install --id Git.Git -e --silent --accept-source-agreements --accept-package-agreements
+  set "PATH=%PATH%;C:\Program Files\Git\cmd"
+)
+where git >nul 2>&1
+if %errorlevel% equ 0 exit /b 0
+echo [1/8] Winget did not work - downloading portable Git directly, one time...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$t=(Invoke-RestMethod -UseBasicParsing https://api.github.com/repos/git-for-windows/git/releases/latest).tag_name; $v=$t.TrimStart('v') -replace '\.windows\.\d+$',''; $u='https://github.com/git-for-windows/git/releases/download/'+$t+'/PortableGit-'+$v+'-64-bit.7z.exe'; Invoke-WebRequest -UseBasicParsing -Uri $u -OutFile '%SETUPDIR%PortableGit-installer.exe'"
+if errorlevel 1 exit /b 1
+"%SETUPDIR%PortableGit-installer.exe" -o"%SETUPDIR%PortableGit" -y >nul
+del "%SETUPDIR%PortableGit-installer.exe" >nul 2>&1
+if not exist "%SETUPDIR%PortableGit\cmd\git.exe" exit /b 1
+set "GITBIN=%SETUPDIR%PortableGit\cmd\git.exe"
+exit /b 0
+
 :tryclone
 set "TRIES=0"
 :cloneretry
-git clone -b %BRANCH% https://github.com/madzopos-ai/mediflow.git "%ROOT%"
+"%GITBIN%" clone -b %BRANCH% https://github.com/madzopos-ai/mediflow.git "%ROOT%"
 if errorlevel 1 (
   set /a TRIES+=1
   if !TRIES! LSS 3 (

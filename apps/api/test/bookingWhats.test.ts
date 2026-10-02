@@ -142,8 +142,8 @@ describe('booking dialogue', () => {
   const P4 = '+96170444444';
   const P5 = '+96170555555';
 
-  const say = (text: string, phone = P1, at = NOW) =>
-    handleInboundBooking(h.db, h.app.tenantFor(clinicId), clinicId, phone, text, at);
+  const say = (text: string, phone = P1, at = NOW, cid = clinicId) =>
+    handleInboundBooking(h.db, h.app.tenantFor(cid), cid, phone, text, at);
 
   const outboxTemplates = (): string[] =>
     (h.db.prepare('SELECT template FROM outbox').all() as { template: string }[]).map((r) => r.template);
@@ -271,8 +271,33 @@ describe('booking dialogue', () => {
     expect(stray.action).toBe('ignored');
   });
 
-  it('staff confirm sends the confirmation and plans reminders', async () => {
-    const pending = h.db.prepare("SELECT id FROM appointments WHERE status = 'pending' LIMIT 1").get() as
+  it('keeps clinics apart: same phone, two clinics, zero crossover', () => {
+    const now = '2026-10-04T05:00:00.000Z';
+    h.db.prepare(
+      `INSERT INTO clinics (id, name, name_ar, slug, timezone, country, currency, is_active, created_at, updated_at)
+       VALUES ('clc_B', 'Clinic B', 'عيادة ب', 'clinic-b', 'Asia/Beirut', 'LB', 'USD', 1, ?, ?)`,
+    ).run(now, now);
+    const phone = '+96170999999';
+    const countA = (h.db.prepare('SELECT COUNT(*) AS n FROM appointments WHERE clinic_id = ?').get(clinicId) as { n: number }).n;
+    const outboxBefore = (h.db.prepare('SELECT COUNT(*) AS n FROM outbox').get() as { n: number }).n;
+
+    const ask = say('بدي احجز بكرة الساعة ١٠ الصبح', phone, now, 'clc_B');
+    expect(ask.action).toBe('asked_confirm');
+    const yes = say('نعم', phone, '2026-10-04T05:01:00.000Z', 'clc_B');
+    expect(yes.action).toBe('booked_pending');
+
+    // B gained exactly one pending draft...
+    const inB = h.db.prepare("SELECT status FROM appointments WHERE clinic_id = 'clc_B'").all() as { status: string }[];
+    expect(inB).toHaveLength(1);
+    expect(inB[0]?.status).toBe('pending');
+    // ...A is untouched, and every row this dialogue wrote belongs to B.
+    expect((h.db.prepare('SELECT COUNT(*) AS n FROM appointments WHERE clinic_id = ?').get(clinicId) as { n: number }).n).toBe(countA);
+    const fresh = h.db.prepare('SELECT clinic_id FROM outbox LIMIT -1 OFFSET ?').all(outboxBefore) as { clinic_id: string }[];
+    expect(fresh.length).toBeGreaterThan(0);
+    expect(fresh.every((r) => r.clinic_id === 'clc_B')).toBe(true);
+  });
+
+  it('staff confirm sends the confirmation and plans reminders', async () => {    const pending = h.db.prepare("SELECT id FROM appointments WHERE status = 'pending' LIMIT 1").get() as
       | { id: string }
       | undefined;
     expect(pending).toBeTruthy();

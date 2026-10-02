@@ -86,7 +86,7 @@ function fromJid(jid: string | null | undefined): string | null {
  * fails is logged and dropped - the socket loop is more important than one
  * booking hint, and the patient can always write again.
  */
-async function forwardToApi(clinicId: string, sender: string, text: string): Promise<void> {
+export async function forwardToApi(clinicId: string, sender: string, text: string): Promise<void> {
   const base = (process.env['MEDIFLOW_API_URL'] ?? '').trim().replace(/\/+$/, '');
   if (!base) return;
   const token = (process.env['GATEWAY_ADMIN_TOKEN'] ?? '').trim();

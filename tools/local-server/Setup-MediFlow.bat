@@ -389,6 +389,8 @@ echo set "REMINDER_WORKER_ENABLED=false"
 echo set "DEFAULT_TIMEZONE=Asia/Beirut"
 echo set "MEDIFLOW_API_URL=http://localhost:4000"
 echo set "GOOGLE_APPLICATION_CREDENTIALS=%%FIREBASE_KEY%%"
+echo set "FIREBASE_PROJECT_ID=%%GW_PROJECT_ID%%"
+echo set "FIREBASE_SERVICE_ACCOUNT_PATH=%%FIREBASE_KEY%%"
 echo :loop
 echo "%NODEPATH%" "%ROOT%\%~2\%~3" ^>^> "%SETUPDIR%logs\%~4" 2^>^&1
 echo timeout /t 5 /nobreak ^>nul

@@ -135,43 +135,70 @@ export async function signUpDoctor(input: {
 }): Promise<User> {
   const { auth, db } = instances();
   const invite = await readInvite(input.activationCode);
-  if (!invite || invite.type !== 'clinic' || invite.usedBy) {
+  if (!invite || invite.type !== 'clinic') {
     throw new Error('activation');
   }
-  const credential = await createUserWithEmailAndPassword(auth, input.email, input.password);
-  const user = credential.user;
+  let user: User;
+  try {
+    const credential = await createUserWithEmailAndPassword(auth, input.email, input.password);
+    user = credential.user;
+  } catch (error) {
+    // A previous attempt may have created the Auth account before failing on
+    // the Firestore writes. Sign in with the same credentials and resume
+    // below instead of stranding the address behind "email already in use".
+    if ((error as { code?: string }).code === 'auth/email-already-in-use') {
+      const credential = await signInWithEmailAndPassword(auth, input.email, input.password);
+      user = credential.user;
+    } else {
+      throw error;
+    }
+  }
+  // Re-read after sign-in: a code burned by someone else in the meantime must
+  // still refuse, but a code burned by MY earlier attempt resumes below.
+  const fresh = await readInvite(input.activationCode);
+  if (!fresh || fresh.type !== 'clinic' || (fresh.usedBy && fresh.usedBy !== user.uid)) {
+    throw new Error('activation');
+  }
   // The inbox proves the address before anything trusts it.
   await sendEmailVerification(user).catch(() => undefined);
   const clinicId = clinicIdFor(input.email);
   const now = new Date().toISOString();
 
-  await setDoc(doc(db, 'clinics', clinicId), {
-    name: input.clinicName,
-    nameAr: null,
-    slug: clinicId,
-    timezone: 'Asia/Beirut',
-    currency: 'USD',
-    doctorLimit: 1,
-    plan: 'standard',
-    subscribedAt: now,
-    expiresAt: null,
-    disabled: false,
-    activationCode: invite.code,
-    ownerUid: user.uid,
-    createdAt: now,
-  });
-  await setDoc(doc(db, 'users', user.uid), {
-    uid: user.uid,
-    email: input.email,
-    name: input.name,
-    role: 'owner',
-    clinicId,
-    status: 'pending',
-    disabled: false,
-    createdAt: now,
-  });
-  // Burn the code so it cannot register a second practice.
-  await updateDoc(doc(db, 'invites', invite.code), { usedBy: user.uid, usedAt: now }).catch(() => undefined);
+  // Resume-safe: every write targets a deterministic id, so re-running
+  // completes a half-finished signup instead of duplicating it.
+  const existing = await getDoc(doc(db, 'users', user.uid));
+  if (!existing.exists()) {
+    await setDoc(doc(db, 'clinics', clinicId), {
+      name: input.clinicName,
+      nameAr: null,
+      slug: clinicId,
+      timezone: 'Asia/Beirut',
+      currency: 'USD',
+      doctorLimit: 1,
+      plan: 'standard',
+      subscribedAt: now,
+      expiresAt: null,
+      disabled: false,
+      activationCode: invite.code,
+      ownerUid: user.uid,
+      createdAt: now,
+    });
+    // The rules validate the code from THIS field - a doc without it can
+    // never satisfy the owner branch, which bricked every signup.
+    await setDoc(doc(db, 'users', user.uid), {
+      uid: user.uid,
+      email: input.email,
+      name: input.name,
+      role: 'owner',
+      clinicId,
+      status: 'pending',
+      disabled: false,
+      activationCode: invite.code,
+      createdAt: now,
+    });
+    // Burn the code so it cannot register a second practice.
+    await updateDoc(doc(db, 'invites', invite.code), { usedBy: user.uid, usedAt: now }).catch(() => undefined);
+  }
   return user;
 }
 
@@ -184,24 +211,44 @@ export async function signUpDoctorWithInvite(input: {
 }): Promise<User> {
   const { auth, db } = instances();
   const invite = await readInvite(input.inviteCode);
-  if (!invite || invite.type !== 'doctor' || invite.usedBy || !invite.clinicId) {
+  if (!invite || invite.type !== 'doctor' || !invite.clinicId) {
     throw new Error('invite');
   }
-  const credential = await createUserWithEmailAndPassword(auth, input.email, input.password);
-  const user = credential.user;
+  let user: User;
+  try {
+    const credential = await createUserWithEmailAndPassword(auth, input.email, input.password);
+    user = credential.user;
+  } catch (error) {
+    // Same resume path as clinic signup: a half-finished attempt leaves an
+    // Auth account behind, so sign in and complete the Firestore docs.
+    if ((error as { code?: string }).code === 'auth/email-already-in-use') {
+      const credential = await signInWithEmailAndPassword(auth, input.email, input.password);
+      user = credential.user;
+    } else {
+      throw error;
+    }
+  }
+  const fresh = await readInvite(input.inviteCode);
+  if (!fresh || fresh.type !== 'doctor' || !fresh.clinicId || (fresh.usedBy && fresh.usedBy !== user.uid)) {
+    throw new Error('invite');
+  }
   await sendEmailVerification(user).catch(() => undefined);
   const now = new Date().toISOString();
-  await setDoc(doc(db, 'users', user.uid), {
-    uid: user.uid,
-    email: input.email,
-    name: input.name,
-    role: 'doctor',
-    clinicId: invite.clinicId,
-    status: 'pending',
-    disabled: false,
-    createdAt: now,
-  });
-  await updateDoc(doc(db, 'invites', invite.code), { usedBy: user.uid, usedAt: now }).catch(() => undefined);
+  const existing = await getDoc(doc(db, 'users', user.uid));
+  if (!existing.exists()) {
+    await setDoc(doc(db, 'users', user.uid), {
+      uid: user.uid,
+      email: input.email,
+      name: input.name,
+      role: 'doctor',
+      clinicId: invite.clinicId,
+      status: 'pending',
+      disabled: false,
+      inviteCode: invite.code,
+      createdAt: now,
+    });
+    await updateDoc(doc(db, 'invites', invite.code), { usedBy: user.uid, usedAt: now }).catch(() => undefined);
+  }
   return user;
 }
 

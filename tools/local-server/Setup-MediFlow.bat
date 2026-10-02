@@ -117,14 +117,37 @@ if not exist "%ROOT%\node_modules\.package-lock.json" (
   echo [3/8] Libraries already installed.
 )
 
-:: ---------- [4] this PC's network address (helper file: no quoting traps) ----------
-echo [4/8] Finding this PC's address on the clinic network...
-set "LANIP="
-for /f "delims=" %%i in ('node "%ROOT%\tools\local-server\lan-ip.cjs"') do set "LANIP=%%i"
-if not defined LANIP set "LANIP=127.0.0.1"
-echo       Address: %LANIP%  (staff will open http://%LANIP%:8080)
-echo       Tip: give this PC a fixed address on the router (DHCP
-echo       reservation) so the address never changes, then run this file again.
+:: ---------- [4] public address via Tailscale Funnel ----------
+:: The website lives on Firebase (public internet) and must reach the API on
+:: this PC. Funnel opens an outbound-only line - no router changes, no open
+:: ports. One stable address per PC, free. Needs a one-time browser login.
+echo [4/8] Making this PC reachable from anywhere (Tailscale Funnel)...
+where tailscale >nul 2>&1
+if %errorlevel% neq 0 (
+  echo       Installing Tailscale - one time download...
+  winget install --id Tailscale.Tailscale -e --silent --accept-source-agreements --accept-package-agreements
+  set "PATH=%PATH%;C:\Program Files\Tailscale"
+)
+where tailscale >nul 2>&1
+if %errorlevel% neq 0 (
+  echo  ERROR: Tailscale did not install. Install it from https://tailscale.com/download
+  echo  then double-click this file again.
+  pause
+  exit /b 1
+)
+:taillogin
+tailscale status >nul 2>&1
+if %errorlevel% equ 0 goto taillogged
+echo.
+echo  ONE-TIME step: a login link appears below - open it in the browser,
+echo  log in with any free account, approve this PC, then wait here.
+echo  This window continues alone once approved.
+echo.
+tailscale up
+timeout /t 25 /nobreak >nul
+goto taillogin
+:taillogged
+echo       Tailscale connected.
 
 :: ---------- folders ----------
 if not exist "%ROOT%\data" mkdir "%ROOT%\data"
@@ -186,51 +209,68 @@ echo set "LANIP=!LANIP!"
 ) > "%SETUPDIR%server.env.bat"
 echo       Saved. Secrets live ONLY in this folder, never on the internet.
 
-:: ---------- [6] build everything (website points at this PC) ----------
+:: ---------- [6] build the servers (website builds on the developer PC) ----------
 echo.
 echo [6/8] Building the program (a minute or two)...
-set "VITE_API_URL=http://%LANIP%:4000"
-call npm --prefix "%ROOT%" run build
-if errorlevel 1 (
-  echo  ERROR: build failed. Send a photo of the red lines above.
-  pause
-  exit /b 1
-)
+call npm --prefix "%ROOT%" run build --workspace @mediflow/api
+if errorlevel 1 goto builderror
+call npm --prefix "%ROOT%" run build --workspace @mediflow/baileys-gateway
+if errorlevel 1 goto builderror
+goto buildok
+:builderror
+echo  ERROR: build failed. Send a photo of the red lines above.
+pause
+exit /b 1
+:buildok
 echo       Build OK.
 
 :: ---------- runners (restart themselves if anything stops) ----------
 call :writerunner "run-api.bat" "apps\api" "dist\index.js" "api.log" "PORT=4000" "GATEWAY_URL=http://localhost:10000"
 call :writerunner "run-gateway.bat" "apps\baileys-gateway" "dist\index.js" "gateway.log" "PORT=10000" "GATEWAY_CONFIG=%ROOT%\gateway-config.json"
 
-:: website preview needs its own folder + fixed port
+:: Funnel runner: publishes localhost:4000 as https://<this-pc>.<tailnet>.ts.net
+:: for the Firebase website to call. Restart-loop like the rest; the address
+:: itself is stable per PC and never changes afterward.
 (
 echo @echo off
-echo cd /d "%ROOT%\apps\web"
 echo :loop
-echo "%ROOT%\node_modules\.bin\vite.cmd" preview --host 0.0.0.0 --port 8080 ^>^> "%SETUPDIR%logs\web.log" 2^>^&1
-echo timeout /t 5 /nobreak ^>nul
+echo tailscale funnel --https=443 4000 ^>^> "%SETUPDIR%logs\funnel.log" 2^>^&1
+echo timeout /t 30 /nobreak ^>nul
 echo goto loop
-) > "%SETUPDIR%run-web.bat"
+) > "%SETUPDIR%run-funnel.bat"
 
 :: ---------- [7] auto-start tasks (back after every reboot, no login) ----------
 echo.
 echo [7/8] Registering auto-start...
 call :registertask "MediFlowAPI" "run-api.bat"
 call :registertask "MediFlowGateway" "run-gateway.bat"
-call :registertask "MediFlowWeb" "run-web.bat"
+call :registertask "MediFlowFunnel" "run-funnel.bat"
+schtasks /Delete /TN "MediFlowWeb" /F >nul 2>&1
 
-:: ---------- firewall (clinic WiFi reaches site + API) ----------
-netsh advfirewall firewall add rule name="MediFlow API" dir=in action=allow protocol=TCP localport=4000 >nul 2>&1
-netsh advfirewall firewall add rule name="MediFlow Web" dir=in action=allow protocol=TCP localport=8080 >nul 2>&1
+:: ---------- publish the API address ----------
+echo.
+echo [7/8] Publishing the public address...
+tailscale funnel reset >nul 2>&1
+for /f "delims=" %%u in ('node "%ROOT%\tools\local-server\tailnet-url.cjs"') do set "PUBLIC_URL=%%u"
+if not defined PUBLIC_URL (
+  echo  ERROR: no funnel address found. Open Tailscale, check this PC is
+  echo  logged in, then run this file again.
+  pause
+  exit /b 1
+)
+echo !PUBLIC_URL! > "%SETUPDIR%public-url.txt"
+echo       Public address: !PUBLIC_URL!
+echo       It never changes for this PC. Send it to your developer ONCE -
+echo       he points the website at it and you never touch this again.
 
 :: ---------- stop anything squatting our ports, then start now ----------
 echo.
 echo [8/8] Starting everything now...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-NetTCPConnection -LocalPort 4000,8080,10000 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }" >nul 2>&1
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-NetTCPConnection -LocalPort 4000,10000 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }" >nul 2>&1
 schtasks /Run /TN "MediFlowAPI" >nul 2>&1
 schtasks /Run /TN "MediFlowGateway" >nul 2>&1
-schtasks /Run /TN "MediFlowWeb" >nul 2>&1
-timeout /t 12 /nobreak >nul
+schtasks /Run /TN "MediFlowFunnel" >nul 2>&1
+timeout /t 20 /nobreak >nul
 
 :: ---------- doctors (loop: as many clinics as you have) ----------
 echo.
@@ -250,10 +290,14 @@ schtasks /Run /TN "MediFlowGateway" >nul 2>&1
 
 echo.
 echo  ============================================================
-echo   DONE! Everything runs on this PC now.
+echo   DONE! Your clinic is online.
 echo.
-echo   Website (clinic WiFi):  http://%LANIP%:8080
-echo   Each doctor logs in, opens the WhatsApp page once, scans
+echo   Website (phone, 3G, WiFi, anywhere):
+echo     https://mediflow-baalbeck.web.app
+echo   It reaches this PC through your public address, saved in:
+echo     public-url.txt (next to this file - already sent to developer)
+echo.
+echo   Each doctor logs in, opens the WhatsApp tab once, scans
 echo   the QR with the clinic phone - afterwards it only says linked.
 echo   If the connection drops, the QR comes back by itself.
 echo.
@@ -263,7 +307,7 @@ echo     then approve it on the calendar with one tap.
 echo   After a reboot everything returns alone: tasks + disk sessions.
 echo  ============================================================
 echo.
-start "" "http://%LANIP%:8080"
+start "" "https://mediflow-baalbeck.web.app"
 pause
 exit /b 0
 
@@ -332,14 +376,14 @@ echo @echo off
 echo cd /d "%ROOT%\%~2"
 echo call "%SETUPDIR%server.env.bat"
 echo set "NODE_ENV=production"
-echo set "HOST=0.0.0.0"
+echo set "HOST=127.0.0.1"
 echo set "%~5"
 if not "%~6"=="" echo set "%~6"
 echo set "DATABASE_FILE=%ROOT%\data\mediflow.db"
 echo set "UPLOADS_DIR=%ROOT%\uploads"
 echo set "BACKUP_DIR=%ROOT%\backups"
-echo set "CORS_ORIGINS=http://%LANIP%:8080"
-echo set "PUBLIC_WEB_URL=http://%LANIP%:8080"
+echo set "CORS_ORIGINS=https://mediflow-baalbeck.web.app"
+echo set "PUBLIC_WEB_URL=https://mediflow-baalbeck.web.app"
 echo set "WHATSAPP_PROVIDER=cloud"
 echo set "REMINDER_WORKER_ENABLED=false"
 echo set "DEFAULT_TIMEZONE=Asia/Beirut"

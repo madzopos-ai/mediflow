@@ -36,6 +36,25 @@ const STRINGS = {
   save: { en: 'Save', ar: 'حفظ' },
   cancel: { en: 'Cancel', ar: 'إلغاء' },
   pendingBooking: { en: 'Awaiting confirmation', ar: 'بانتظار التأكيد' },
+  broadcast: { en: 'Broadcast', ar: 'بث جماعي' },
+  broadcastHint: {
+    en: 'One message to many patients at once. Opted-out patients are excluded automatically.',
+    ar: 'رسالة واحدة لعدة مرضى معاً. المرضى الذين ألغوا الاشتراك يُستبعدون تلقائياً.',
+  },
+  broadcastTypeToList: {
+    en: 'Type a name above to list matching patients, then tick who receives this.',
+    ar: 'اكتب اسماً بالأعلى لعرض المرضى المطابقين، ثم حدّد من يستلم.',
+  },
+  broadcastSend: { en: 'Send to selected', ar: 'إرسال للمحددين' },
+  broadcastPickSomeone: {
+    en: 'Tick at least one patient and write the message first.',
+    ar: 'حدّد مريضاً واحداً على الأقل واكتب الرسالة أولاً.',
+  },
+  broadcastDone: {
+    en: 'Queued for {n} patient(s), skipped {m}.',
+    ar: 'أُرسلت لـ {n} مريض، وتُجاوز {m}.',
+  },
+  searchPatients: { en: 'Search patients', ar: 'بحث عن المرضى' },
   close: { en: 'Close', ar: 'إغلاق' },
   search: { en: 'Search', ar: 'بحث' },
   show: { en: 'Show', ar: 'عرض' },

@@ -1912,6 +1912,36 @@ export async function msgSend(patientId: string, body: string): Promise<void> {
   await api('POST', '/messages', { patientId, body });
 }
 
+/**
+ * One message to many patients. The server applies the same consent and
+ * number rules per recipient and reports who queued vs who was skipped,
+ * so the UI can say "35 sent, 2 skipped (opted out)" truthfully.
+ */
+export async function msgBroadcast(
+  patientIds: string[],
+  body: string,
+): Promise<{ queued: { patientId: string }[]; skipped: { patientId: string; reason: string }[] }> {
+  if (await useFirestore()) {
+    const queued: { patientId: string }[] = [];
+    const skipped: { patientId: string; reason: string }[] = [];
+    for (const patientId of new Set(patientIds)) {
+      try {
+        await (await store()).sendPatientMessage(patientId, body);
+        queued.push({ patientId });
+      } catch {
+        skipped.push({ patientId, reason: 'failed' });
+      }
+    }
+    return { queued, skipped };
+  }
+  const data = await api<{ queued?: { patientId: string }[]; skipped?: { patientId: string; reason: string }[] }>(
+    'POST',
+    '/messages/broadcast',
+    { patientIds, body },
+  );
+  return { queued: data.queued ?? [], skipped: data.skipped ?? [] };
+}
+
 export interface UiOutboxRow {
   id: string;
   to: string;

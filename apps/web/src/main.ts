@@ -38,9 +38,7 @@ const NAV: NavItem[] = [
   { hash: '#/finance', label: 'finance' },
   { hash: '#/insurers', label: 'insurers' },
   { hash: '#/team', label: 'team' },
-  // No WhatsApp tab on purpose: the doctor never sees chats. Device pairing
-  // lives on #/whatsapp (reachable directly), which renders only the link
-  // card - the equivalent of WhatsApp Web's "linked devices" screen.
+  { hash: '#/whatsapp', label: 'whatsapp' },
   { hash: '#/recall', label: 'recall' },
 ];
 
@@ -350,6 +348,10 @@ function routeFor(hash: string, root: HTMLElement, signedIn: boolean): void {
     renderOnboarding(root);
     return;
   }
+  // Pending-send badge on the WhatsApp tab (best-effort, advisory only).
+  void import('./views/whatsapp.js')
+    .then((m) => m.refreshWhatsappBadge())
+    .catch(() => undefined);
   routeStaff(hash, root);
 }
 

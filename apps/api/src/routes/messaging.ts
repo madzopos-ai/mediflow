@@ -37,6 +37,12 @@ const sendSchema = z.object({
   replyToMessageId: idSchema.nullable().optional(),
 });
 
+const broadcastSchema = z.object({
+  patientIds: z.array(idSchema).min(1).max(100),
+  body: z.string().trim().min(1).max(4096),
+  channel: z.enum(['whatsapp', 'sms', 'email', 'in_app']).default('whatsapp'),
+});
+
 const recallSchema = z.object({
   patientId: idSchema,
   body: z.string().trim().min(1).max(4096),
@@ -233,6 +239,71 @@ export async function registerMessagingRoutes(
       });
 
       return reply.status(201).send({ message, outbox: queued.message, enqueued: queued.enqueued });
+    }),
+  );
+
+  /**
+   * Staff broadcasts one message to many patients. Same rules as single send,
+   * applied per patient: unknown ids, missing numbers and opt-outs are
+   * reported as skips rather than failing the whole batch, because a broadcast
+   * to 40 patients must not die on patient #7. Tenant scoping makes
+   * cross-clinic ids simply "not found".
+   */
+  app.post(
+    '/messages/broadcast',
+    { preHandler: requireCapability('whatsapp:write') },
+    handler(async (request, reply) => {
+      const body = parseBody(request, broadcastSchema, 'broadcast');
+      const clinicId = request.tenant.clinicId;
+      const tenant = tenantOf(request);
+      const settings = readSettings(app.database, clinicId);
+      const now = new Date().toISOString();
+      const sender = userIdOf(request);
+
+      const queued: { patientId: string; outboxId: string }[] = [];
+      const skipped: { patientId: string; reason: string }[] = [];
+      for (const patientId of new Set(body.patientIds)) {
+        const patient = tenant.get<Row>('patients', patientId);
+        if (!patient) {
+          skipped.push({ patientId, reason: 'not-found' });
+          continue;
+        }
+        const to = normalizePhone(
+          String(patient['whatsapp_number'] ?? patient['phone']),
+          settings.whatsapp.defaultDialCode,
+        );
+        if (!to || !isValidE164(to)) {
+          skipped.push({ patientId, reason: 'no-number' });
+          continue;
+        }
+        if (!Number(patient['whatsapp_opt_in'])) {
+          skipped.push({ patientId, reason: 'opted-out' });
+          continue;
+        }
+        const result = queueOutbound(tenant, {
+          to,
+          body: body.body,
+          template: 'custom',
+          channel: body.channel,
+          patientId,
+          now,
+        });
+        const threadId = ensureThread(tenant, clinicId, patientId, threadKey(patientId, body.channel), body.body, now, false);
+        createMessage(tenant, clinicId, {
+          threadId,
+          patientId,
+          channel: body.channel,
+          direction: 'outbound',
+          status: 'queued',
+          body: body.body,
+          sentBy: sender,
+          appointmentId: null,
+          replyToMessageId: null,
+          now,
+        });
+        queued.push({ patientId, outboxId: String(result.row['id']) });
+      }
+      return reply.status(201).send({ queued, skipped });
     }),
   );
 

@@ -213,6 +213,7 @@ export function renderCalendar(root: HTMLElement): void {
               .then(() => {
                 toast(t('book'));
                 load(from, to);
+                void refreshBadge();
               })
               .catch((error: unknown) => {
                 button.disabled = false;
@@ -331,6 +332,7 @@ export function renderCalendar(root: HTMLElement): void {
         booked = null;
         load(dayKey(0), dayKey(7));
         paintDay(bookDay.value);
+        void refreshBadge();
       })
       .catch((error: unknown) => {
         if (error instanceof OfflineQueuedError) toast(t('queued'));
@@ -338,6 +340,13 @@ export function renderCalendar(root: HTMLElement): void {
         else toast(errorText(error), 'error');
       });
   });
+}
+
+/** Refreshes the WhatsApp tab badge (best-effort, advisory only). */
+function refreshBadge(): void {
+  void import('./whatsapp.js')
+    .then((m) => m.refreshWhatsappBadge())
+    .catch(() => undefined);
 }
 
 /** ISO instant -> datetime-local value (browser-local, no seconds). */

@@ -38,7 +38,7 @@ export interface BootstrapResult {
 }
 
 export class BootstrapError extends Error {
-  readonly code: 'invalid_email' | 'weak_password' | 'already_bootstrapped' | 'verify_failed';
+  readonly code: 'invalid_email' | 'weak_password' | 'already_bootstrapped' | 'email_taken' | 'verify_failed';
   constructor(code: BootstrapError['code'], message: string) {
     super(message);
     this.code = code;
@@ -71,7 +71,42 @@ export async function bootstrapOwner(db: Db, input: BootstrapInput): Promise<Boo
     );
   }
 
-  const slug = slugify(clinicName, 40);
+  return writeClinicOwner(db, email, clinicName, input.password);
+}
+
+/**
+ * Creates an ADDITIONAL clinic and owner on a database that already has
+ * users. Same writes and same verify-back as the first-owner path, minus the
+ * empty-database gate. The email must be unused anywhere: one address, one
+ * clinic, so a login can never be ambiguous about which practice it opens.
+ */
+export async function createClinicOwner(db: Db, input: BootstrapInput): Promise<BootstrapResult> {
+  const email = input.email.toLowerCase().trim();
+  const clinicName = input.clinicName?.trim() || 'MediFlow Clinic';
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new BootstrapError('invalid_email', 'That email address is not valid.');
+  }
+  if (!input.password || input.password.length < 10) {
+    throw new BootstrapError('weak_password', 'Password must be at least 10 characters.');
+  }
+
+  const taken = db.prepare('SELECT id FROM users WHERE email = ? LIMIT 1').get(email) as
+    | { id: string }
+    | undefined;
+  if (taken) {
+    throw new BootstrapError('email_taken', 'That email already owns a clinic. Each doctor signs in with their own address.');
+  }
+
+  return writeClinicOwner(db, email, clinicName, input.password);
+}
+
+async function writeClinicOwner(db: Db, email: string, clinicName: string, password: string): Promise<BootstrapResult> {
+  let slug = slugify(clinicName, 40);
+  // Two clinics may share a name; slugs must stay unique for the URL.
+  if ((db.prepare('SELECT id FROM clinics WHERE slug = ?').get(slug) as { id: string } | undefined)) {
+    slug = `${slug}-${Math.random().toString(36).slice(2, 7)}`;
+  }
   const now = new Date().toISOString();
   const clinicId = createId('clc');
   const ownerUserId = createId('usr');
@@ -79,7 +114,7 @@ export async function bootstrapOwner(db: Db, input: BootstrapInput): Promise<Boo
   const schedule = defaultSchedule(clinicId, 'ar');
   // Hashed outside the transaction: better-sqlite3 transactions are
   // synchronous, so nothing async may run inside one.
-  const passwordHash = await hashPassword(input.password);
+  const passwordHash = await hashPassword(password);
 
   const write = db.transaction(() => {
     db.prepare(
@@ -120,7 +155,7 @@ export async function bootstrapOwner(db: Db, input: BootstrapInput): Promise<Boo
   const row = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(ownerUserId) as
     | { password_hash: string }
     | undefined;
-  if (!row || !(await verifyPassword(input.password, row.password_hash))) {
+  if (!row || !(await verifyPassword(password, row.password_hash))) {
     throw new BootstrapError('verify_failed', 'Verification of the new account failed; nothing was left half-written.');
   }
 

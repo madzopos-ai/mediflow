@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { openDatabase, migrate, type Db } from '../src/db/index.js';
-import { bootstrapOwner } from '../src/services/bootstrap.js';
+import { bootstrapOwner, createClinicOwner } from '../src/services/bootstrap.js';
 import { verifyPassword } from '../src/auth/password.js';
 
 let db: Db;
@@ -93,5 +93,46 @@ describe('bootstrapOwner', () => {
   it('lowercases and trims the email', async () => {
     const result = await bootstrapOwner(db, { email: '  Owner@Example.TEST ', password: 'a-strong-pass-1' });
     expect(result.ownerEmail).toBe('owner@example.test');
+  });
+});
+
+describe('createClinicOwner (second, third, ... doctors)', () => {
+  it('adds another full clinic on a non-empty database', async () => {
+    await bootstrapOwner(db, { email: 'first@example.test', password: 'first-password-1' });
+    const second = await createClinicOwner(db, {
+      email: 'second@example.test',
+      password: 'second-password-2',
+      clinicName: 'Second Clinic',
+    });
+    expect(second.ownerEmail).toBe('second@example.test');
+    expect(second.clinicId).not.toBe('');
+    // Full kit, like the first: settings, schedule, active owner.
+    expect(
+      (db.prepare('SELECT COUNT(*) AS n FROM clinic_settings WHERE clinic_id = ?').get(second.clinicId) as { n: number }).n,
+    ).toBe(1);
+    expect(
+      (db.prepare('SELECT COUNT(*) AS n FROM clinic_schedules WHERE clinic_id = ?').get(second.clinicId) as { n: number }).n,
+    ).toBe(1);
+    const user = db.prepare('SELECT role, is_active FROM users WHERE id = ?').get(second.ownerUserId) as {
+      role: string;
+      is_active: number;
+    };
+    expect(user.role).toBe('owner');
+    expect(user.is_active).toBe(1);
+  });
+
+  it('refuses an address that already owns a clinic', async () => {
+    await bootstrapOwner(db, { email: 'taken@example.test', password: 'taken-password-1' });
+    await expect(
+      createClinicOwner(db, { email: 'Taken@Example.Test ', password: 'other-password-2' }),
+    ).rejects.toMatchObject({ code: 'email_taken' });
+  });
+
+  it('survives two clinics sharing one name', async () => {
+    await bootstrapOwner(db, { email: 'a@example.test', password: 'a-password-11', clinicName: 'Same Name' });
+    const second = await createClinicOwner(db, { email: 'b@example.test', password: 'b-password-22', clinicName: 'Same Name' });
+    expect(second.clinicId).toBeTruthy();
+    const slugs = db.prepare('SELECT slug FROM clinics').all() as { slug: string }[];
+    expect(new Set(slugs.map((s) => s.slug)).size).toBe(2);
   });
 });

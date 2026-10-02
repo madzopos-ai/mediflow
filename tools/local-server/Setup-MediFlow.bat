@@ -23,7 +23,8 @@ title MediFlow - One-Click Server Setup
 :: ---------- must run as Administrator (auto-relaunch) ----------
 net session >nul 2>&1
 if %errorlevel% neq 0 (
-  echo Requesting administrator rights (needed once for auto-start)...
+  echo Requesting administrator rights - needed once for auto-start...
+  echo If a permission window pops up, click YES.
   powershell -NoProfile -Command "Start-Process '%~f0' -Verb RunAs"
   exit /b 0
 )
@@ -94,9 +95,9 @@ echo [1/8] Git found.
 :: ---------- [2] download / update the program ----------
 if not exist "%ROOT%\.git" (
   echo [2/8] Downloading MediFlow into %ROOT% ...
-  git clone -b %BRANCH% https://github.com/madzopos-ai/mediflow.git "%ROOT%"
+  call :tryclone
   if errorlevel 1 (
-    echo  ERROR: download failed. Check the internet connection and try again.
+    echo  ERROR: download failed 3 times. Check the internet and run again.
     pause
     exit /b 1
   )
@@ -112,10 +113,10 @@ if not exist "%ROOT%\.git" (
 
 :: ---------- [3] libraries ----------
 if not exist "%ROOT%\node_modules\.package-lock.json" (
-  echo [3/8] Installing libraries (takes a few minutes, once)...
-  call npm --prefix "%ROOT%" ci
+  echo [3/8] Installing libraries - first time takes a few minutes...
+  call :trynpm
   if errorlevel 1 (
-    echo  ERROR: library install failed. Check the internet and run again.
+    echo  ERROR: library install failed 3 times. Check the internet and run again.
     pause
     exit /b 1
   )
@@ -123,13 +124,10 @@ if not exist "%ROOT%\node_modules\.package-lock.json" (
   echo [3/8] Libraries already installed.
 )
 
-:: ---------- [4] this PC's network address ----------
+:: ---------- [4] this PC's network address (helper file: no quoting traps) ----------
 echo [4/8] Finding this PC's address on the clinic network...
 set "LANIP="
-for /f "delims=" %%i in ('powershell -NoProfile -Command "(Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -like '192.168.*' -or $_.IPAddress -like '10.*' } | Select-Object -First 1).IPAddress"') do set "LANIP=%%i"
-if not defined LANIP (
-  for /f "delims=" %%i in ('powershell -NoProfile -Command "(Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } | Select-Object -First 1).IPAddress"') do set "LANIP=%%i"
-)
+for /f "delims=" %%i in ('node "%ROOT%\tools\local-server\lan-ip.cjs"') do set "LANIP=%%i"
 if not defined LANIP set "LANIP=127.0.0.1"
 echo       Address: %LANIP%  (staff will open http://%LANIP%:8080)
 echo       Tip: give this PC a fixed address on the router (DHCP
@@ -140,6 +138,9 @@ if not exist "%ROOT%\data" mkdir "%ROOT%\data"
 if not exist "%ROOT%\uploads" mkdir "%ROOT%\uploads"
 if not exist "%ROOT%\backups" mkdir "%ROOT%\backups"
 if not exist "%SETUPDIR%logs" mkdir "%SETUPDIR%logs"
+:: An empty clinic list lets the gateway idle gracefully until the first
+:: doctor is added below (a missing file would crash it instead).
+if not exist "%ROOT%\gateway-config.json" echo {"clinics": []} > "%ROOT%\gateway-config.json"
 
 :: ---------- [5] the two things only you know ----------
 echo.
@@ -160,16 +161,16 @@ if not defined GATEWAY_ADMIN_TOKEN (
 )
 if not defined GW_PROJECT_ID (
   echo.
-  echo  Firebase project of the clinics (same for all doctors).
+  echo  Firebase project of the clinics - same one for all doctors.
   echo  Press Enter to accept [mediflow-baalbeck]:
   set /p "GW_PROJECT_ID=  Project: "
   if not defined GW_PROJECT_ID set "GW_PROJECT_ID=mediflow-baalbeck"
 )
 if not defined FIREBASE_KEY (
   echo.
-  echo  Firebase service-account key file (needed by WhatsApp).
+  echo  Firebase service-account key file - needed by WhatsApp.
   echo  Drag the .json file into THIS window and press Enter.
-  echo  Empty = skip for now (WhatsApp waits, the rest works).
+  echo  Empty = skip for now - WhatsApp waits, the rest works.
   set /p "FIREBASE_KEY=  Key file (empty to skip): "
 )
 if defined FIREBASE_KEY (
@@ -278,6 +279,36 @@ exit /b 0
 if exist "%SETUPDIR%server.env.bat" call "%SETUPDIR%server.env.bat"
 exit /b 0
 
+:tryclone
+set "TRIES=0"
+:cloneretry
+git clone -b %BRANCH% https://github.com/madzopos-ai/mediflow.git "%ROOT%"
+if errorlevel 1 (
+  set /a TRIES+=1
+  if !TRIES! LSS 3 (
+    echo  Internet hiccup - retrying download, attempt !TRIES! of 3...
+    timeout /t 5 /nobreak >nul
+    goto cloneretry
+  )
+  exit /b 1
+)
+exit /b 0
+
+:trynpm
+set "TRIES=0"
+:npmretry
+call npm --prefix "%ROOT%" ci --no-audit --no-fund
+if errorlevel 1 (
+  set /a TRIES+=1
+  if !TRIES! LSS 3 (
+    echo  Internet hiccup - retrying install, attempt !TRIES! of 3...
+    timeout /t 5 /nobreak >nul
+    goto npmretry
+  )
+  exit /b 1
+)
+exit /b 0
+
 :writerunner
 :: %1=file  %2=app folder  %3=entry js  %4=log  %5=PORT line  %6=extra SET line
 (
@@ -297,7 +328,6 @@ echo set "WHATSAPP_PROVIDER=cloud"
 echo set "REMINDER_WORKER_ENABLED=false"
 echo set "DEFAULT_TIMEZONE=Asia/Beirut"
 echo set "MEDIFLOW_API_URL=http://localhost:4000"
-echo set "GATEWAY_SESSION_DIR=%ROOT%\gateway-sessions"
 echo set "GOOGLE_APPLICATION_CREDENTIALS=%%FIREBASE_KEY%%"
 echo :loop
 echo "%NODEPATH%" "%ROOT%\%~2\%~3" ^>^> "%SETUPDIR%logs\%~4" 2^>^&1

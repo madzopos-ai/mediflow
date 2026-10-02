@@ -17,16 +17,34 @@
  * passwords and malformed numbers are re-asked on the spot.
  */
 
-const { createRequire } = require('node:module');
 const readline = require('node:readline');
 
-const require = createRequire(__filename);
+// Plain .cjs already has require; dist modules load straight through it.
+const path = require('node:path');
 const { openDatabase } = require('../../apps/api/dist/db/index.js');
-const { bootstrapOwner, BootstrapError } = require('../../apps/api/dist/services/bootstrap.js');
+const { bootstrapOwner, createClinicOwner, BootstrapError } = require('../../apps/api/dist/services/bootstrap.js');
 const { upsertClinic } = require('./add-clinic.cjs');
 
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+
+// Batch mode: when stdin is redirected (file/pipe), readline on Windows
+// closes after the first question, so answers are consumed from a plain
+// line array instead. Interactive consoles keep the prompting readline.
+let batchLines = null;
+if (!process.stdin.isTTY) {
+  try {
+    batchLines = require('node:fs').readFileSync(0, 'utf8').split(/\r?\n/);
+  } catch {
+    batchLines = [];
+  }
+}
+
 function ask(question) {
+  if (batchLines) {
+    const answer = (batchLines.length ? batchLines.shift() : '').trim();
+    console.log(question + answer);
+    return Promise.resolve(answer);
+  }
   return new Promise((resolve) => rl.question(question, (answer) => resolve(answer.trim())));
 }
 
@@ -59,18 +77,30 @@ async function addOne(db, env) {
   try {
     result = await bootstrapOwner(db, { email, password, clinicName });
   } catch (error) {
-    if (error instanceof BootstrapError) {
+    if (error instanceof BootstrapError && error.code === 'already_bootstrapped') {
+      // Second, third, ... doctor: same writes, minus the empty-database gate.
+      try {
+        result = await createClinicOwner(db, { email, password, clinicName });
+      } catch (inner) {
+        if (inner instanceof BootstrapError) {
+          console.log(`  Skipped: ${inner.message}`);
+          return false;
+        }
+        throw inner;
+      }
+    } else if (error instanceof BootstrapError) {
       console.log(`  Skipped: ${error.message}`);
       return false;
+    } else {
+      throw error;
     }
-    throw error;
   }
 
   const n = upsertClinic(env.config, {
     clinicId: result.clinicId,
     projectId: env.project,
     phone,
-    sessionDir: `${env.sessionBase}/${result.clinicId}`,
+    sessionDir: path.join(env.sessionBase, result.clinicId),
     serviceAccountPath: env.keyPath,
   });
 
@@ -100,6 +130,7 @@ async function main() {
     }
   } finally {
     db.close();
+    rl.close();
   }
   console.log('Finished. Restart the gateway task so it picks up new clinics (or reboot).');
 }

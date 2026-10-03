@@ -228,6 +228,59 @@ async function routeApi(
     return true;
   }
 
+  // GET /api/clinics/:id/events - realtime session stream (SSE).
+  //
+  // The web app's Link-a-Device panel polls GET /api/clinics/:id today. That
+  // works but shows the QR up to one poll late and burns mobile data. This
+  // stream pushes the same session payload the instant it changes (new QR on
+  // rotation, pairing -> connected), with polling kept as a fallback: if the
+  // browser cannot hold SSE, it keeps using the plain GET routes above.
+  //
+  // Events: `event: session` + JSON sessionPayload, `: ping` heartbeat.
+  if (action === 'events') {
+    if (req.method !== 'GET') {
+      error(res, 405, 'method_not_allowed');
+      return true;
+    }
+    res.writeHead(200, {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-cache, no-transform',
+      connection: 'keep-alive',
+      'x-accel-buffering': 'no',
+    });
+    const send = (session: ClinicSession): void => {
+      res.write(`event: session\ndata: ${JSON.stringify(sessionPayload(session))}\n\n`);
+    };
+    const current = ctx.registry.get(clinicId);
+    if (current) send(current);
+    let lastUpdatedAt = current?.updatedAt ?? null;
+    const heartbeat = setInterval(() => {
+      res.write(': ping\n\n');
+    }, 25_000);
+    heartbeat.unref?.();
+    const timer = setInterval(() => {
+      const next = ctx.registry.get(clinicId);
+      if (!next) return;
+      if (next.updatedAt !== lastUpdatedAt) {
+        lastUpdatedAt = next.updatedAt;
+        send(next);
+      }
+      // A settled session needs no more pushes: the QR is gone (paired) or
+      // will never come (logged-out/error until a human re-pairs).
+      if (next.state === 'connected' || next.state === 'logged-out' || next.state === 'error') {
+        clearInterval(timer);
+        clearInterval(heartbeat);
+        res.end();
+      }
+    }, 2_000);
+    timer.unref?.();
+    req.on('close', () => {
+      clearInterval(timer);
+      clearInterval(heartbeat);
+    });
+    return true;
+  }
+
   // POST /api/clinics/:id/pairing-code - mint a code for phones that cannot
   // scan a QR. Takes no phone number in the body on purpose: the gateway must
   // never be talked into pairing an arbitrary number to a clinic.

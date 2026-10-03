@@ -14,7 +14,8 @@
  * path as the API, evaluated with the same shared library.
  */
 
-import makeWASocket, {
+import {
+  makeWASocket,
   DisconnectReason,
   fetchLatestBaileysVersion,
   useMultiFileAuthState,

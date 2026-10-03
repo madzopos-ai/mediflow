@@ -15,6 +15,7 @@
 
 import { runClinic } from './clinic.js';
 import { startServer, type HealthState } from './http.js';
+import { acquireSingleInstanceLock } from './lock.js';
 import { SessionRegistry } from './registry.js';
 import { ENV_CLINIC_FIELDS, loadConfig } from './config.js';
 
@@ -61,6 +62,15 @@ function idleReport(missingEnv: string[]): string {
 }
 
 async function main(): Promise<void> {
+  // Fail fast on a second copy: two processes over the same session
+  // directory kick each other off WhatsApp within seconds and the server
+  // parks the session. A loud error beats a mysterious pairing failure.
+  try {
+    acquireSingleInstanceLock();
+  } catch (error) {
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    process.exit(1);
+  }
   // Bind before reading the config so a slow, missing, or unconfigured file
   // still leaves the port open. If loadConfig throws afterwards the process
   // exits and the deploy fails loudly, which is correct for a real config error

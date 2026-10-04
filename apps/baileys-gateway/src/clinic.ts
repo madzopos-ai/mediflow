@@ -179,19 +179,14 @@ async function connectAndServe(
   // arrives between reconnects fails loudly instead of hanging on a dead sock.
   registry.setRequester(clinic.clinicId, (phoneNumber) => sock.requestPairingCode(phoneNumber));
 
-  // First run: print a pairing code too, so an operator can still pair from a
-  // terminal when the web app is not yet in use. The QR (surfaced over HTTP)
-  // is the path the UI drives; both produce the same linked session.
+  // Fresh session: wait for a QR scan. No phone number is needed for this
+  // path - any phone that scans the QR becomes the linked device. The
+  // 8-digit pairing code (which DOES need the configured number) is strictly
+  // on demand via POST /api/clinics/:id/pairing-code, because auto-requesting
+  // a code for a number that is not an active WhatsApp account makes the
+  // server drop the whole handshake and no QR ever survives.
   if (!state.creds.registered) {
-    try {
-      const code = await sock.requestPairingCode(clinic.phoneNumber);
-      registry.setPairingCode(clinic.clinicId, code);
-      process.stdout.write(`[${clinic.clinicId}] pairing code for +${clinic.phoneNumber}: ${code}\n`);
-    } catch (error) {
-      process.stderr.write(
-        `[${clinic.clinicId}] pairing failed: ${error instanceof Error ? error.message : String(error)}\n`,
-      );
-    }
+    process.stdout.write(`[${clinic.clinicId}] fresh session - scan the QR in the web app to link any phone.\n`);
   }
 
   // --- API outbox poll ---

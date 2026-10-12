@@ -15,6 +15,7 @@
  */
 
 import {
+  Browsers,
   makeWASocket,
   DisconnectReason,
   fetchLatestBaileysVersion,
@@ -165,7 +166,11 @@ async function connectAndServe(
 ): Promise<void> {
   const { state, saveCreds } = await useMultiFileAuthState(clinic.sessionDir);
   const { version } = await fetchLatestBaileysVersion();
-  const sock = makeWASocket({ version, auth: state });
+  // Explicit browser identity: the library default (Ubuntu/Chrome) is
+  // rejected by WhatsApp's servers with an immediate close during the fresh
+  // registration handshake, so no QR ever arrives. macOS/Desktop is the
+  // identity other operators report as accepted for QR pairing.
+  const sock = makeWASocket({ version, auth: state, browser: Browsers.macOS('Desktop') });
   sock.ev.on('creds.update', saveCreds);
 
   registry.patch(clinic.clinicId, {
@@ -377,6 +382,7 @@ async function connectAndServe(
         registry.patch(clinic.clinicId, { state: 'disconnected', qr: null, qrUpdatedAt: null });
         const code = (lastDisconnect?.error as { output?: { statusCode?: number } } | undefined)?.output
           ?.statusCode;
+        process.stdout.write(`[${clinic.clinicId}] connection closed (code ${code ?? 'unknown'}) - reconnecting.\n`);
         if (code === DisconnectReason.loggedOut) {
           reject(new Error('logged out - delete the session directory and pair again'));
           return;

@@ -11,7 +11,9 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    sourcemap: false,
+    // Temporary diagnostic: ship sourcemaps so the next console stack maps
+    // to real files. Revert to false once the whatsapp null crash is found.
+    sourcemap: true,
     target: 'es2022',
   },
 });

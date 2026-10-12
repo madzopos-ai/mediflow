@@ -18,7 +18,13 @@ export interface PickedPatient {
   mrn: string;
 }
 
-export function attachPatientPicker(input: HTMLInputElement, onPick: (patient: PickedPatient | null) => void): void {
+export function attachPatientPicker(
+  input: HTMLInputElement | null,
+  onPick: (patient: PickedPatient | null) => void,
+): void {
+  // Defensive: callers cast querySelector results. A missing input must
+  // degrade to a dead picker, never throw and kill the whole view.
+  if (!input) return;
   const wrapper = document.createElement('div');
   wrapper.className = 'picker';
   input.replaceWith(wrapper);

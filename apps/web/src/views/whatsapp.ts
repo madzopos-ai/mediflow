@@ -122,13 +122,16 @@ export function renderWhatsapp(root: HTMLElement): void {
       (document.getElementById('wa-outbox') as HTMLElement).innerHTML = `<p class="muted">${esc(errorText(error))}</p>`;
     });
 
-  const sendForm = document.getElementById('wa-send') as HTMLFormElement;
+  const sendForm = document.getElementById('wa-send') as HTMLFormElement | null;
   let waPicked: PickedPatient | null = null;
-  attachPatientPicker(sendForm.querySelector('input[name="patientId"]') as HTMLInputElement, (p) => {
-    waPicked = p;
-  });
+  if (sendForm) {
+    attachPatientPicker(sendForm.querySelector('input[name="patientId"]') as HTMLInputElement | null, (p) => {
+      waPicked = p;
+    });
+  }
 
-  sendForm.addEventListener('submit', (event) => {
+  if (sendForm) {
+    sendForm.addEventListener('submit', (event) => {
     event.preventDefault();
     let patientId = '';
     try {
@@ -152,26 +155,29 @@ export function renderWhatsapp(root: HTMLElement): void {
         if (error instanceof OfflineQueuedError) toast(t('queued'));
         else toast(errorText(error), 'error');
       });
-  });
+    });
+  }
 
   // Ad-hoc direct open: no task is created, nothing is logged - the doctor
   // just wants the chat open with the text ready.
-  (document.getElementById('wa-direct') as HTMLButtonElement).addEventListener('click', () => {
+  const waDirect = document.getElementById('wa-direct') as HTMLButtonElement | null;
+  waDirect?.addEventListener('click', () => {
     if (!waPicked) {
       toast(t('pickPatientError'), 'error');
       return;
     }
-    const body = String(new FormData(sendForm).get('body') ?? '');
+    const body = sendForm ? String(new FormData(sendForm).get('body') ?? '') : '';
     window.open(waLink(waPicked.phone, body), '_blank', 'noopener');
   });
 
   // Broadcast: one message to many patients. Opted-out patients are listed
   // disabled up front (the server would skip them anyway); the result toast
   // reports exactly what queued and what did not.
-  const bSearch = document.getElementById('bSearch') as HTMLInputElement;
-  const bList = document.getElementById('wa-bcast-list') as HTMLElement;
-  const bForm = document.getElementById('wa-broadcast') as HTMLFormElement;
-  const bError = document.getElementById('broadcast-error') as HTMLElement;
+  const bSearch = document.getElementById('bSearch') as HTMLInputElement | null;
+  const bList = document.getElementById('wa-bcast-list') as HTMLElement | null;
+  const bForm = document.getElementById('wa-broadcast') as HTMLFormElement | null;
+  const bError = document.getElementById('broadcast-error') as HTMLElement | null;
+  if (!bSearch || !bList || !bForm || !bError) return;
   let bTimer: ReturnType<typeof setTimeout> | null = null;
   const paintBroadcastList = (): void => {
     const q = bSearch.value.trim();

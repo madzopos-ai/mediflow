@@ -174,25 +174,48 @@ export async function exchangeFirebaseSession(
   const now = new Date().toISOString();
   ensureClinic(db, staff.clinicId, `${staff.name}'s clinic`, now);
 
+  type UserRow = {
+    id: string;
+    clinic_id: string;
+    email: string;
+    full_name: string;
+    role: MemberRole;
+    locale: string;
+    is_active: number;
+  };
+
   let row = db
     .prepare('SELECT id, clinic_id, email, full_name, role, locale, is_active FROM users WHERE firebase_uid = ?')
-    .get(identity.uid) as
-    | { id: string; clinic_id: string; email: string; full_name: string; role: MemberRole; locale: string; is_active: number }
-    | undefined;
+    .get(identity.uid) as UserRow | undefined;
 
   if (!row) {
-    // A Firebase user can never password-login: the hash is a locked marker
-    // that verifyPassword structurally rejects.
-    const id = createId('usr');
-    db.prepare(
-      `INSERT INTO users
+    // API-era account with the same email: link it instead of inserting a
+    // duplicate, which would violate UNIQUE(clinic_id, email). This is the
+    // normal case for clinics created before Firebase login existed.
+    const legacy = db
+      .prepare('SELECT id, clinic_id, email, full_name, role, locale, is_active FROM users WHERE clinic_id = ? AND email = ?')
+      .get(staff.clinicId, staff.email) as UserRow | undefined;
+    if (legacy) {
+      db.prepare('UPDATE users SET firebase_uid = ?, updated_at = ? WHERE id = ?').run(
+        identity.uid,
+        now,
+        legacy.id,
+      );
+      row = { ...legacy, clinic_id: staff.clinicId };
+    } else {
+      // A Firebase user can never password-login: the hash is a locked marker
+      // that verifyPassword structurally rejects.
+      const id = createId('usr');
+      db.prepare(
+        `INSERT INTO users
          (id, clinic_id, email, password_hash, full_name, role, locale, firebase_uid,
           is_active, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, 'en', ?, 1, ?, ?)`,
-    ).run(id, staff.clinicId, staff.email, `firebase-only$${identity.uid}`, staff.name, staff.role, identity.uid, now, now);
-    row = db
-      .prepare('SELECT id, clinic_id, email, full_name, role, locale, is_active FROM users WHERE id = ?')
-      .get(id) as typeof row;
+      ).run(id, staff.clinicId, staff.email, `firebase-only$${identity.uid}`, staff.name, staff.role, identity.uid, now, now);
+      row = db
+        .prepare('SELECT id, clinic_id, email, full_name, role, locale, is_active FROM users WHERE id = ?')
+        .get(id) as UserRow | undefined;
+    }
   }
 
   if (!row || row.is_active !== 1) {

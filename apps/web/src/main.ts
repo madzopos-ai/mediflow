@@ -274,6 +274,11 @@ function route(): void {
           window.location.hash = '#/my';
           return;
         }
+        // Returning visits (refresh, new tab) have a Firebase session but no
+        // API token: mint it silently so API-backed calls just work.
+        if (user !== null && !user.isAnonymous) {
+          void fb.ensureApiSession().catch(() => undefined);
+        }
         routeFor(hash, root, user !== null && !user.isAnonymous);
       });
       return;

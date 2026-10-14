@@ -71,6 +71,39 @@ describe('firebase exchange', () => {
     expect(users.n).toBe(1);
   });
 
+  it('links a legacy password-era account instead of duplicating it', async () => {
+    // Clinics created before Firebase login existed already have a users row
+    // with the same (clinic_id, email) and no firebase_uid. Exchanging must
+    // attach to it, not INSERT a second row (UNIQUE would throw).
+    const now = new Date().toISOString();
+    h.db
+      .prepare(
+        `INSERT INTO users
+          (id, clinic_id, email, password_hash, full_name, role, locale, firebase_uid,
+           is_active, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 1, ?, ?)`,
+      )
+      .run('usr-legacy-1', 'fb-demo', 'legacy@clinic.test', 'locked', 'Legacy Owner', 'owner', 'en', now, now);
+    stubAs({ uid: 'fb-legacy-1', email: 'legacy@clinic.test', name: 'Legacy Owner', role: 'owner', clinicId: 'fb-demo' });
+    const res = await h.app.inject({
+      method: 'POST',
+      url: '/auth/firebase',
+      payload: { idToken: 'stub:fb-legacy-1' },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { user: { id: string; clinicId: string } };
+    expect(body.user.id).toBe('usr-legacy-1');
+    expect(body.user.clinicId).toBe('fb-demo');
+    const count = h.db
+      .prepare('SELECT COUNT(*) AS n FROM users WHERE email = ?')
+      .get('legacy@clinic.test') as { n: number };
+    expect(count.n).toBe(1);
+    const linked = h.db
+      .prepare('SELECT firebase_uid AS uid FROM users WHERE id = ?')
+      .get('usr-legacy-1') as { uid: string | null };
+    expect(linked.uid).toBe('fb-legacy-1');
+  });
+
   it('rejects an account with no staff record', async () => {
     stubAs(null);
     setFirebaseTestDoubles(

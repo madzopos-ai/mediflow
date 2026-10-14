@@ -296,6 +296,32 @@ export async function firebaseIdToken(): Promise<string> {
   return user.getIdToken();
 }
 
+/**
+ * Mirror the Firebase staff session into an API session.
+ *
+ * Firebase mode signs doctors in without ever touching the API login, so
+ * `mf_token` stays empty and every API-backed call (device linking first
+ * among them) fails before it even leaves the browser. The API already
+ * knows how to mint its own session from a Firebase ID token
+ * (POST /auth/firebase, auto-provisioning), it just was never asked.
+ *
+ * Best-effort by design: when the API is unreachable the doctor stays
+ * signed in (Firestore still works) and API-only features report their
+ * own errors. Returns true when an API token is present afterwards.
+ */
+export async function ensureApiSession(): Promise<boolean> {
+  if (!isFirebaseConfigured()) return false;
+  const { exchangeFirebaseSession, getToken, setSession } = await import('./api.js');
+  if (getToken()) return true;
+  const { auth } = instances();
+  await auth.authStateReady();
+  const user = auth.currentUser;
+  if (!user || user.isAnonymous) return false;
+  const session = await exchangeFirebaseSession(await user.getIdToken());
+  setSession(session.token, session.user);
+  return true;
+}
+
 /** Reload + verified flag: unverified accounts wait at the gate. */
 export async function isEmailVerified(): Promise<boolean> {
   const { auth } = instances();

@@ -133,6 +133,9 @@ function renderFirebaseLogin(root: HTMLElement, fb: FirebaseModule): void {
 
   // Firebase mode is self-sufficient: Firestore rules authorise directly off
   // the Firebase session, so there is no second login and no second account.
+  // The API session is still minted in the background: API-only features
+  // (notably WhatsApp device linking) need mf_token, and without this call
+  // they fail before leaving the browser while everything else looks fine.
   const goHome = (): void => {
     // Cache the reseller flag before routing so the Admin tab paints
     // on first load, then go home regardless of the outcome.
@@ -142,6 +145,7 @@ function renderFirebaseLogin(root: HTMLElement, fb: FirebaseModule): void {
       .then((pa) => pa.clearFbPatientSession())
       .catch(() => undefined)
       .finally(() => fb.refreshResellerFlag().catch(() => undefined))
+      .finally(() => fb.ensureApiSession().catch((error: unknown) => toast(errorText(error), 'error')))
       .finally(() => {
         // Publish my directory card (Firebase mode, best-effort).
         if (fb.isFirebaseConfigured()) {

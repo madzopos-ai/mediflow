@@ -104,6 +104,23 @@ describe('firebase exchange', () => {
     expect(linked.uid).toBe('fb-legacy-1');
   });
 
+  it('survives two tabs exchanging at once without a UNIQUE failure', async () => {
+    // goHome and the boot route both mint an API session on first login. The
+    // two POSTs race: both miss the lookup, one INSERT wins. Both logins
+    // must still succeed with a single user row, not a 401 + UNIQUE toast.
+    stubAs({ uid: 'fb-race-1', email: 'race@clinic.test', name: 'Racy', role: 'owner', clinicId: 'fb-demo' });
+    const [first, second] = await Promise.all([
+      h.app.inject({ method: 'POST', url: '/auth/firebase', payload: { idToken: 'stub:fb-race-1' } }),
+      h.app.inject({ method: 'POST', url: '/auth/firebase', payload: { idToken: 'stub:fb-race-1' } }),
+    ]);
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+    const count = h.db
+      .prepare('SELECT COUNT(*) AS n FROM users WHERE firebase_uid = ?')
+      .get('fb-race-1') as { n: number };
+    expect(count.n).toBe(1);
+  });
+
   it('rejects an account with no staff record', async () => {
     stubAs(null);
     setFirebaseTestDoubles(

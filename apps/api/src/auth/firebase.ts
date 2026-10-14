@@ -206,15 +206,29 @@ export async function exchangeFirebaseSession(
       // A Firebase user can never password-login: the hash is a locked marker
       // that verifyPassword structurally rejects.
       const id = createId('usr');
-      db.prepare(
-        `INSERT INTO users
+      try {
+        db.prepare(
+          `INSERT INTO users
          (id, clinic_id, email, password_hash, full_name, role, locale, firebase_uid,
           is_active, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, 'en', ?, 1, ?, ?)`,
-      ).run(id, staff.clinicId, staff.email, `firebase-only$${identity.uid}`, staff.name, staff.role, identity.uid, now, now);
-      row = db
-        .prepare('SELECT id, clinic_id, email, full_name, role, locale, is_active FROM users WHERE id = ?')
-        .get(id) as UserRow | undefined;
+        ).run(id, staff.clinicId, staff.email, `firebase-only$${identity.uid}`, staff.name, staff.role, identity.uid, now, now);
+      } catch (error) {
+        // Two tabs logging in at once race here: both miss the lookup, one
+        // INSERT wins and the other hits UNIQUE. The winner's row (found by
+        // firebase_uid) is the correct session either way, so adopt it
+        // instead of failing the login.
+        const unique =
+          error instanceof Error && (error as { code?: string }).code === 'SQLITE_CONSTRAINT_UNIQUE';
+        if (!unique) throw error;
+      }
+      row =
+        (db
+          .prepare('SELECT id, clinic_id, email, full_name, role, locale, is_active FROM users WHERE id = ?')
+          .get(id) as UserRow | undefined) ??
+        (db
+          .prepare('SELECT id, clinic_id, email, full_name, role, locale, is_active FROM users WHERE firebase_uid = ?')
+          .get(identity.uid) as UserRow | undefined);
     }
   }
 
